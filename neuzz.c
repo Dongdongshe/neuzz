@@ -18,6 +18,11 @@
 #include <sys/mman.h>
 #include <dirent.h>
 #include <ctype.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#define PORT 12012
+
 #define R(x) (random() % (x))
 #define likely(_x)   __builtin_expect(!!(_x), 1)
 #define MAX_LINE            8192
@@ -124,16 +129,6 @@ void setup_stdio_file(void) {
 }
 
 
-/* Handle stop signal (Ctrl-C, etc). */
-
-static void handle_stop_sig(int sig) {
-
-  stop_soon = 1; 
-
-  if (child_pid > 0) kill(child_pid, SIGKILL);
-  if (forksrv_pid > 0) kill(forksrv_pid, SIGKILL);
-
-}
 
 
 /* Count the number of non-255 bytes set in the bitmap. Used strictly for the
@@ -162,6 +157,23 @@ static u32 count_non_255_bytes(u8* mem) {
 
   return ret;
 
+}
+
+/* Handle stop signal (Ctrl-C, etc). */
+
+static void handle_stop_sig(int sig) {
+
+  stop_soon = 1; 
+
+  if (child_pid > 0) kill(child_pid, SIGKILL);
+  if (forksrv_pid > 0) kill(forksrv_pid, SIGKILL);
+  printf("total execs %d edge coverage %d.\n", total_execs,count_non_255_bytes(virgin_bits));
+  
+  //free buffer
+  free(out_buf);
+  free(out_buf1);
+  free(out_buf2);
+  exit(0);
 }
 
 /* Check if the current execution path brings anything new to the table.
@@ -297,7 +309,8 @@ void init_forkserver(char** argv) {
   int st_pipe[2], ctl_pipe[2];
   int status;
   int rlen;
-  out_file = alloc_printf("%s/.cur_input", out_dir);
+  char* cwd = getcwd(NULL, 0);
+  out_file = alloc_printf("%s/%s/.cur_input",cwd, out_dir);
   printf("Spinning up the fork server...\n");
 
   if (pipe(st_pipe) || pipe(ctl_pipe)) perror("pipe() failed");
@@ -495,17 +508,9 @@ void setup_dirs_fds(void) {
 
   if (mkdir(out_dir, 0700)) {
 
-    if (errno != EEXIST) fprintf(stderr,"Unable to create %s", out_dir);
+    if (errno != EEXIST) fprintf(stderr,"Unable to create %s\n", out_dir);
 
   }
-
-
-  /* Queue directory for any starting & discovered paths. */
-
-  tmp = alloc_printf("%s/queue", out_dir);
-  if (mkdir(tmp, 0700)) fprintf(stderr,"Unable to create '%s'", tmp);
-  free(tmp);
-
 
   /* Generally useful file descriptors. */
 
@@ -1005,12 +1010,53 @@ static void write_to_testcase(void* mem, u32 len) {
 
     fd = open(out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
 
-    if (fd < 0) fprintf(stderr, "Unable to create '%s'", out_file);
+    if (fd < 0) perror("Unable to create file");
 
 
   ck_write(fd, mem, len, out_file);
 
   close(fd);
+
+}
+
+/* Check CPU governor. */
+
+static void check_cpu_governor(void) {
+
+  FILE* f;
+  u8 tmp[128];
+  u64 min = 0, max = 0;
+
+  if (getenv("AFL_SKIP_CPUFREQ")) return;
+
+  f = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor", "r");
+  if (!f) return;
+
+  printf("Checking CPU scaling governor...\n");
+
+  if (!fgets(tmp, 128, f)) perror("fgets() failed");
+
+  fclose(f);
+
+  if (!strncmp(tmp, "perf", 4)) return;
+
+  f = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq", "r");
+
+  if (f) {
+    if (fscanf(f, "%llu", &min) != 1) min = 0;
+    fclose(f);
+  }
+
+  f = fopen("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq", "r");
+
+  if (f) {
+    if (fscanf(f, "%llu", &max) != 1) max = 0;
+    fclose(f);
+  }
+
+  if (min == max) return;
+
+  printf("Err: Suboptimal CPU scaling governor\n");
 
 }
 
@@ -1076,7 +1122,7 @@ void gen_mutate(){
             if(has_new_bits(virgin_bits)==2){
                 //printf("id:%d find new edge\n",mut_cnt);
                 //printf("edge num %d\n",count_non_255_bytes(virgin_bits));
-                char* mut_fn = alloc_printf("%s/queue/id_%06d", out_dir, mut_cnt);
+                char* mut_fn = alloc_printf("%s/id_%06d", out_dir, mut_cnt);
                 int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
                 ck_write(mut_fd, out_buf1, len, mut_fn);
                 free(mut_fn);
@@ -1103,7 +1149,7 @@ void gen_mutate(){
             if(has_new_bits(virgin_bits)==2){
                 //printf("id:%d find new edge\n",mut_cnt);
                 //printf("edge num %d\n",count_non_255_bytes(virgin_bits));
-                char* mut_fn = alloc_printf("%s/queue/id_%06d", out_dir, mut_cnt);
+                char* mut_fn = alloc_printf("%s/id_%06d", out_dir, mut_cnt);
                 int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
                 ck_write(mut_fd, out_buf2, len, mut_fn);
                 close(mut_fd);
@@ -1115,35 +1161,110 @@ void gen_mutate(){
     printf("edge num %d\n",count_non_255_bytes(virgin_bits));
 }
 
-void fuzz_lop(char * grad_file, int f_len){
+void dry_run(char* dir){
+    DIR *dp;
+    struct dirent *entry;
+    struct stat statbuf;
+    if((dp = opendir(dir)) == NULL) {
+        fprintf(stderr,"cannot open directory: %s\n", dir);
+        return;
+    }
+    chdir(dir);
+    int cnt = 0;
+    while((entry = readdir(dp)) != NULL) { 
+        if(stat(entry->d_name,&statbuf) == -1)
+            continue;
+        if(S_ISREG(statbuf.st_mode)) {
+            char * tmp = NULL;
+            tmp = strstr(entry->d_name,".");
+            if(tmp != entry->d_name){
+                int fd_tmp = open(entry->d_name, O_RDONLY);
+                if(fd_tmp == -1)
+                    perror("open failed");
+                int file_len = statbuf.st_size;
+                memset(out_buf1, 0, len);
+                ck_read(fd_tmp, out_buf1,file_len, entry->d_name);
+                write_to_testcase(out_buf1, len);
+                int fault = run_target(1000); 
+                if (fault != 0)
+                    printf("execute test case failed\n");
+                has_new_bits(virgin_bits);
+                cnt = cnt + 1;
+                printf("### %d %s\n",cnt , entry->d_name);
+            }
+        }
+    }
+    chdir("..");
+    closedir(dp);
+    printf("total execs %d edge coverage %d.\n", total_execs,count_non_255_bytes(virgin_bits));
+    return;
+}
+
+void copy_file(char* src, char* dst){
+    FILE *fptr1, *fptr2;
+    char c;
+    // Open one file for reading
+    fptr1 = fopen(src, "r");
+    if (fptr1 == NULL)
+    {
+        printf("Cannot open file %s \n", src);
+        exit(0);
+    }
+
+    // Open another file for writing
+    fptr2 = fopen(dst, "w");
+    if (fptr2 == NULL)
+    {
+        printf("Cannot open file %s \n", dst);
+        exit(0);
+    }
+
+    // Read contents from file
+    c = fgetc(fptr1);
+    while (c != EOF)
+    {
+        fputc(c, fptr2);
+        c = fgetc(fptr1);
+    }
+
+    printf("Contents copied to %s\n", dst);
+
+    fclose(fptr1);
+    fclose(fptr2);
+    return;
+}
+
+void fuzz_lop(char * grad_file, int sock){
+    //char *cp_argv[] = {"/usr/bin/cp","gradient_info_p", grad_file, NULL};
+    copy_file("gradient_info_p", grad_file);
+    //int pid = fork();
+    //if(!pid){
+    //    execv(cp_argv[0],cp_argv);
+    //    perror("cp failed");
+    //}
+    //else
+    //    wait(NULL);
     FILE *stream = fopen(grad_file, "r");
     char *line = NULL;
     size_t llen = 0;
     ssize_t nread;
-    len = f_len;
     if (stream == NULL) {
         perror("fopen");
         exit(EXIT_FAILURE);
     }
     int line_cnt=0;
-    out_buf = malloc(10000);
-    if(!out_buf)
-        perror("malloc failed");
-    out_buf1 = malloc(10000);
-    if(!out_buf1)
-        perror("malloc failed");
-    out_buf2 = malloc(10000);
-    if(!out_buf2)
-        perror("malloc failed");
     while ((nread = getline(&line, &llen, stream)) != -1) {    
         line_cnt = line_cnt+1;
+        // send message to python module
+        //if(line_cnt == 150)
+        //    send(sock,"train", 5,0);
         //parse gradient info
         char* loc_str = strtok(line,"|");
         char* sign_str = strtok(NULL,"|");
         char* fn = strtok(strtok(NULL,"|"),"\n");
         parse_array(loc_str,loc);
         parse_array(sign_str,sign);
-        printf("$$$$fuzz %s\n",fn); 
+        printf("$$$$&&&& fuzz %s line_cnt %d\n",fn, line_cnt); 
         //read seed into mem
         int fn_fd = open(fn,O_RDONLY);
         if(fn_fd == -1){
@@ -1155,17 +1276,54 @@ void fuzz_lop(char * grad_file, int f_len){
         int file_len = st.st_size;
         memset(out_buf1,0,len);
         memset(out_buf2,0,len);
+        memset(out_buf,0, len);
         ck_read(fn_fd, out_buf, file_len, fn);
         //generate mutation
         gen_mutate(); 
     }
-    free(out_buf);
-    free(out_buf1);
-    free(out_buf2);
     free(line);
-
+    fclose(stream);
 }
 
+void start_fuzz(int f_len){
+    // connect to python module
+    struct sockaddr_in address;
+    int sock = 0;
+    struct sockaddr_in serv_addr;
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        perror("Socket creation error");
+        exit(0);
+    }
+    memset(&serv_addr, '0', sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(PORT);
+    if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0){
+        perror("Invalid address/ Address not supported");
+        exit(0);
+    }
+    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
+        perror("Connection Failed");
+        exit(0);
+    }
+    //set up buffer
+    out_buf = malloc(10000);
+    if(!out_buf)
+        perror("malloc failed");
+    out_buf1 = malloc(10000);
+    if(!out_buf1)
+        perror("malloc failed");
+    out_buf2 = malloc(10000);
+    if(!out_buf2)
+        perror("malloc failed");
+    
+    len = f_len;
+    // dry run
+    dry_run(out_dir);
+    // fuzz
+    //while(1)
+        fuzz_lop("gradient_info", sock);
+    return;
+}
 
 void main(int argc, char*argv[]){
     int opt;
@@ -1189,7 +1347,9 @@ void main(int argc, char*argv[]){
     default:
         printf("no manual...");
     }
-     
+    
+    setup_signal_handlers();
+    check_cpu_governor();
     get_core_count();
     bind_to_free_cpu();
     setup_shm();
@@ -1201,8 +1361,7 @@ void main(int argc, char*argv[]){
     
     init_forkserver(argv+optind);
     
-    fuzz_lop("gradient_info", 8447);
-    printf("total execs %d.\n", total_execs);
+    start_fuzz(8447);   
     return;
 }
 
