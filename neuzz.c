@@ -36,6 +36,7 @@ static int shm_id;
 #define AVG_SMOOTHING       16
 static int mem_limit  = 1024;
 static int cpu_aff = -1; 
+int round_cnt = 0;
 char * target_path;
 typedef uint8_t  u8;
 typedef uint16_t u16;
@@ -1114,21 +1115,33 @@ void gen_mutate(){
                 else
                     out_buf1[loc[index]] = mut_val;
             }
-            write_to_testcase(out_buf1, len);    
-            int fault = run_target(1000); 
-            if (fault != 0)
-                printf("execute test case failed\n");
-            //save mutations that find new edges.
-            if(has_new_bits(virgin_bits)==2){
-                //printf("id:%d find new edge\n",mut_cnt);
-                //printf("edge num %d\n",count_non_255_bytes(virgin_bits));
+
+            //total_execs++;
+                /*
                 char* mut_fn = alloc_printf("%s/id_%06d", out_dir, mut_cnt);
                 int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
                 ck_write(mut_fd, out_buf1, len, mut_fn);
                 free(mut_fn);
                 close(mut_fd);
                 mut_cnt = mut_cnt + 1;
+                */
+            
+            write_to_testcase(out_buf1, len);    
+            int fault = run_target(1500); 
+            if (fault != 0)
+                printf("execute test case failed\n");
+            //save mutations that find new edges.
+            if(has_new_bits(virgin_bits)==2){
+                //printf("id:%d len %d find new edge\n",mut_cnt, len);
+                //printf("edge num %d\n",count_non_255_bytes(virgin_bits));
+                char* mut_fn = alloc_printf("%s/id_%d_%06d", out_dir,round_cnt, mut_cnt);
+                int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+                ck_write(mut_fd, out_buf1, len, mut_fn);
+                free(mut_fn);
+                close(mut_fd);
+                mut_cnt = mut_cnt + 1;
             }
+            
         }
         // low direction mutation(up to 255)
         for(int step=0;step<low_step;step=step+1){
@@ -1141,21 +1154,32 @@ void gen_mutate(){
                 else
                     out_buf2[loc[index]] = mut_val;
             }
-            write_to_testcase(out_buf2, len);    
-            int fault = run_target(1000); 
-            if (fault != 0)
-                printf("execute test case failed\n");
-            //save mutations that find new edges.
-            if(has_new_bits(virgin_bits)==2){
-                //printf("id:%d find new edge\n",mut_cnt);
-                //printf("edge num %d\n",count_non_255_bytes(virgin_bits));
+            //total_execs++;
+                /*
                 char* mut_fn = alloc_printf("%s/id_%06d", out_dir, mut_cnt);
                 int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
                 ck_write(mut_fd, out_buf2, len, mut_fn);
                 close(mut_fd);
                 free(mut_fn);
                 mut_cnt = mut_cnt + 1;
+                */
+            
+            write_to_testcase(out_buf2, len);    
+            int fault = run_target(1500); 
+            if (fault != 0)
+                printf("execute test case failed\n");
+            //save mutations that find new edges.
+            if(has_new_bits(virgin_bits)==2){
+                //printf("id:%d len %d find new edge\n", mut_cnt, len);
+                //printf("edge num %d\n",count_non_255_bytes(virgin_bits));
+                char* mut_fn = alloc_printf("%s/id_%d_%06d", out_dir,round_cnt, mut_cnt);
+                int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+                ck_write(mut_fd, out_buf2, len, mut_fn);
+                close(mut_fd);
+                free(mut_fn);
+                mut_cnt = mut_cnt + 1;
             }
+            
         }
     }
     printf("edge num %d\n",count_non_255_bytes(virgin_bits));
@@ -1184,13 +1208,15 @@ void dry_run(char* dir){
                 int file_len = statbuf.st_size;
                 memset(out_buf1, 0, len);
                 ck_read(fd_tmp, out_buf1,file_len, entry->d_name);
-                write_to_testcase(out_buf1, len);
-                int fault = run_target(1000); 
+                write_to_testcase(out_buf1, file_len);
+                int fault = run_target(1500); 
                 if (fault != 0)
                     printf("execute test case failed\n");
-                has_new_bits(virgin_bits);
+                int ret = has_new_bits(virgin_bits);
+                if (ret==2)
+                    printf("### %d %s\n",cnt , entry->d_name);
                 cnt = cnt + 1;
-                printf("### %d %s\n",cnt , entry->d_name);
+                close(fd_tmp);
             }
         }
     }
@@ -1235,15 +1261,7 @@ void copy_file(char* src, char* dst){
 }
 
 void fuzz_lop(char * grad_file, int sock){
-    //char *cp_argv[] = {"/usr/bin/cp","gradient_info_p", grad_file, NULL};
     copy_file("gradient_info_p", grad_file);
-    //int pid = fork();
-    //if(!pid){
-    //    execv(cp_argv[0],cp_argv);
-    //    perror("cp failed");
-    //}
-    //else
-    //    wait(NULL);
     FILE *stream = fopen(grad_file, "r");
     char *line = NULL;
     size_t llen = 0;
@@ -1255,9 +1273,13 @@ void fuzz_lop(char * grad_file, int sock){
     int line_cnt=0;
     while ((nread = getline(&line, &llen, stream)) != -1) {    
         line_cnt = line_cnt+1;
+         
         // send message to python module
-        //if(line_cnt == 150)
-        //    send(sock,"train", 5,0);
+        if(line_cnt == 550){
+            round_cnt++;
+            send(sock,"train", 5,0);
+        }
+        
         //parse gradient info
         char* loc_str = strtok(line,"|");
         char* sign_str = strtok(NULL,"|");
@@ -1279,7 +1301,8 @@ void fuzz_lop(char * grad_file, int sock){
         memset(out_buf,0, len);
         ck_read(fn_fd, out_buf, file_len, fn);
         //generate mutation
-        gen_mutate(); 
+        gen_mutate();
+        close(fn_fd);
     }
     free(line);
     fclose(stream);
@@ -1287,6 +1310,7 @@ void fuzz_lop(char * grad_file, int sock){
 
 void start_fuzz(int f_len){
     // connect to python module
+    
     struct sockaddr_in address;
     int sock = 0;
     struct sockaddr_in serv_addr;
@@ -1305,6 +1329,7 @@ void start_fuzz(int f_len){
         perror("Connection Failed");
         exit(0);
     }
+    
     //set up buffer
     out_buf = malloc(10000);
     if(!out_buf)
@@ -1320,7 +1345,7 @@ void start_fuzz(int f_len){
     // dry run
     dry_run(out_dir);
     // fuzz
-    //while(1)
+    while(1)
         fuzz_lop("gradient_info", sock);
     return;
 }
@@ -1362,6 +1387,7 @@ void main(int argc, char*argv[]){
     init_forkserver(argv+optind);
     
     start_fuzz(8447);   
+    printf("total execs %d edge coverage %d.\n", total_execs,count_non_255_bytes(virgin_bits));
     return;
 }
 
