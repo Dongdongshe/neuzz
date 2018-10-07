@@ -34,6 +34,17 @@ static int shm_id;
 #define FORKSRV_FD 198
 #define EXEC_FAIL_SIG 0xfee1dead
 #define AVG_SMOOTHING       16
+
+#define HAVOC_BLK_SMALL     32
+#define HAVOC_BLK_MEDIUM    128
+#define HAVOC_BLK_LARGE     1500
+
+
+#define HAVOC_BLK_XL        4096
+
+
+#  define MIN(_a,_b) ((_a) > (_b) ? (_b) : (_a))
+#  define MAX(_a,_b) ((_a) > (_b) ? (_a) : (_b))
 static int mem_limit  = 1024;
 static int cpu_aff = -1; 
 int round_cnt = 0;
@@ -68,11 +79,15 @@ char *in_dir,                    /* Input directory with test cases  */
 #define MAP_SIZE 2<<18
 char virgin_bits[MAP_SIZE];     /* Regions yet untouched by fuzzing */
 static int mut_cnt = 0;
-char *out_buf, *out_buf1, *out_buf2;
+char *out_buf, *out_buf1, *out_buf2, *out_buf3;
 size_t len;
-int loc[1024];
-int sign[1024];
-int num_index[11] = {0,2,4,8,16,32,64,128,256,512,1024};
+int loc[10240];
+int sign[10240];
+//int num_index[23] = {0,2,4,8,16,32,64,128,256,512,1024,1536,2048,2560,3072, 3584,4096,4608,5120, 5632,6144,6656,7103};
+int num_index[14] = {0,2,4,8,16,32,64,128,256,512,1024, 2048,4096,7103};
+
+// file list 
+char **file_list;
 #define ck_write(fd, buf, len, fn) do { \
     u32 _len = (len); \
     int _res = write(fd, buf, _len); \
@@ -174,6 +189,7 @@ static void handle_stop_sig(int sig) {
   free(out_buf);
   free(out_buf1);
   free(out_buf2);
+  free(out_buf3);
   exit(0);
 }
 
@@ -1062,6 +1078,7 @@ static void check_cpu_governor(void) {
 }
 
 void parse_array(char * str, int * array){
+    
     int i=0;
     char* token = strtok(str,",");
     while(token != NULL){
@@ -1069,12 +1086,52 @@ void parse_array(char * str, int * array){
         i++;
         token = strtok(NULL, ",");
     }
+
     return;
+}
+
+/* Helper to choose random block len for block operations in fuzz_one().
+   Doesn't return zero, provided that max_len is > 0. */
+
+static u32 choose_block_len(u32 limit) {
+
+  u32 min_value, max_value;
+
+  switch ((random()%3)) {
+
+    case 0:  min_value = 1;
+             max_value = HAVOC_BLK_SMALL;
+             break;
+
+    case 1:  min_value = HAVOC_BLK_SMALL;
+             max_value = HAVOC_BLK_MEDIUM;
+             break;
+
+    default:
+
+             if ((random()%10)) {
+
+               min_value = HAVOC_BLK_MEDIUM;
+               max_value = HAVOC_BLK_LARGE;
+
+             } else {
+
+               min_value = HAVOC_BLK_LARGE;
+               max_value = HAVOC_BLK_XL;
+
+             }
+
+  }
+
+  if (min_value >= limit) min_value = 1;
+
+  return min_value + (random()%(MIN(max_value, limit) - min_value + 1));
+
 }
 
 void gen_mutate(){
     //flip interesting locations within 10 iterations
-    for(int iter=0 ;iter<10; iter=iter+1){
+    for(int iter=0 ;iter<13; iter=iter+1){
         memcpy(out_buf1, out_buf, len);        
         memcpy(out_buf2, out_buf, len);        
         //find mutation range for every iteration
@@ -1102,7 +1159,6 @@ void gen_mutate(){
                     low_step = cur_low_step;
             }
         }
-        printf("###up: %d, low %d\n",up_step,low_step);
         //up direction mutation(up to 255)
         for(int step=0;step<up_step;step=step+1){
             int mut_val;
@@ -1182,10 +1238,77 @@ void gen_mutate(){
             
         }
     }
+    int cut_len = 0;
+    int del_loc = 0;
+    int rand_loc = 0;
+    for(int del_count=0; del_count < 512;del_count= del_count+1){
+        del_loc = loc[del_count];
+        if ((len- del_loc) <= 2)
+            continue;
+        cut_len = choose_block_len(len-1-del_loc);
+        
+        memcpy(out_buf1, out_buf,del_loc);
+        memcpy(out_buf1+del_loc, out_buf+del_loc+cut_len, len-del_loc-cut_len);
+        
+        write_to_testcase(out_buf1, len-cut_len);    
+        int fault = run_target(1500); 
+        if (fault != 0)
+            printf("execute test case failed\n");
+
+                
+        char* mut_fn = alloc_printf("%s/id_%06d", "vari_seeds", mut_cnt);
+        int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+        ck_write(mut_fd, out_buf1, len, mut_fn);
+        close(mut_fd);
+        free(mut_fn);
+        mut_cnt = mut_cnt + 1;
+                
+        //save mutations that find new edges.
+        if(has_new_bits(virgin_bits)==2){
+            //printf("id:%d len %d find new edge\n",mut_cnt, len);
+            //printf("edge num %d\n",count_non_255_bytes(virgin_bits));
+            char* mut_fn = alloc_printf("%s/id_%d_%06d", "vari_seeds",round_cnt, mut_cnt);
+            int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+            ck_write(mut_fd, out_buf1, len-cut_len, mut_fn);
+            free(mut_fn);
+            close(mut_fd);
+            mut_cnt = mut_cnt + 1;
+        }
+
+        cut_len = choose_block_len(len-1);
+        rand_loc = (random()%cut_len);
+        memcpy(out_buf3, out_buf, del_loc);
+        memcpy(out_buf3+del_loc, out_buf+rand_loc, cut_len);
+        memcpy(out_buf3+del_loc+cut_len, out_buf+del_loc, len-del_loc);
+        write_to_testcase(out_buf3, len+cut_len);    
+        fault = run_target(1500); 
+        if (fault != 0)
+            printf("execute test case failed\n");
+
+        
+        mut_fn = alloc_printf("%s/id_%06d", "vari_seeds", mut_cnt);
+        mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+        ck_write(mut_fd, out_buf3, len+cut_len, mut_fn);
+        close(mut_fd);
+        free(mut_fn);
+        mut_cnt = mut_cnt + 1;
+        
+        //save mutations that find new edges.
+        if(has_new_bits(virgin_bits)==2){
+            //printf("id:%d len %d find new edge\n",mut_cnt, len);
+            //printf("edge num %d\n",count_non_255_bytes(virgin_bits));
+            char* mut_fn = alloc_printf("%s/id_%d_%06d", "vari_seeds",round_cnt, mut_cnt);
+            int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+            ck_write(mut_fd, out_buf3, len+cut_len, mut_fn);
+            free(mut_fn);
+            close(mut_fd);
+            mut_cnt = mut_cnt + 1;
+        }
+    }
     printf("edge num %d\n",count_non_255_bytes(virgin_bits));
 }
 
-void dry_run(char* dir){
+void dry_run(char* dir, int stage){
     DIR *dp;
     struct dirent *entry;
     struct stat statbuf;
@@ -1213,8 +1336,19 @@ void dry_run(char* dir){
                 if (fault != 0)
                     printf("execute test case failed\n");
                 int ret = has_new_bits(virgin_bits);
-                if (ret==2)
-                    printf("### %d %s\n",cnt , entry->d_name);
+                if (ret==2){
+                    if(stage == 0)
+                        printf("### %d %s\n",cnt , entry->d_name);
+                    else{ 
+                        char* mut_fn = alloc_printf("../%s/id_%d_%06d", out_dir,round_cnt, mut_cnt);
+                        int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+                        ck_write(mut_fd, out_buf1, len, mut_fn);
+                        free(mut_fn);
+                        close(mut_fd);
+                        mut_cnt = mut_cnt + 1;
+                    }
+
+                }
                 cnt = cnt + 1;
                 close(fd_tmp);
             }
@@ -1222,7 +1356,7 @@ void dry_run(char* dir){
     }
     chdir("..");
     closedir(dp);
-    printf("total execs %d edge coverage %d.\n", total_execs,count_non_255_bytes(virgin_bits));
+    printf("dry run %d edge coverage %d.\n", total_execs,count_non_255_bytes(virgin_bits));
     return;
 }
 
@@ -1260,7 +1394,9 @@ void copy_file(char* src, char* dst){
     return;
 }
 
+
 void fuzz_lop(char * grad_file, int sock){
+    dry_run("./splice_seeds/", 1); 
     copy_file("gradient_info_p", grad_file);
     FILE *stream = fopen(grad_file, "r");
     char *line = NULL;
@@ -1272,20 +1408,23 @@ void fuzz_lop(char * grad_file, int sock){
     }
     int line_cnt=0;
     while ((nread = getline(&line, &llen, stream)) != -1) {    
+        
         line_cnt = line_cnt+1;
          
         // send message to python module
-        if(line_cnt == 550){
+        if(line_cnt == 1450){
             round_cnt++;
             send(sock,"train", 5,0);
         }
-        
+         
         //parse gradient info
         char* loc_str = strtok(line,"|");
         char* sign_str = strtok(NULL,"|");
         char* fn = strtok(strtok(NULL,"|"),"\n");
+        
         parse_array(loc_str,loc);
         parse_array(sign_str,sign);
+        
         printf("$$$$&&&& fuzz %s line_cnt %d\n",fn, line_cnt); 
         //read seed into mem
         int fn_fd = open(fn,O_RDONLY);
@@ -1300,6 +1439,7 @@ void fuzz_lop(char * grad_file, int sock){
         memset(out_buf2,0,len);
         memset(out_buf,0, len);
         ck_read(fn_fd, out_buf, file_len, fn);
+        
         //generate mutation
         gen_mutate();
         close(fn_fd);
@@ -1340,19 +1480,43 @@ void start_fuzz(int f_len){
     out_buf2 = malloc(10000);
     if(!out_buf2)
         perror("malloc failed");
+    out_buf3 = malloc(20000);
+    if(!out_buf3)
+        perror("malloc failed");
     
     len = f_len;
     // dry run
-    dry_run(out_dir);
+    dry_run(out_dir, 0);
     // fuzz
     while(1)
         fuzz_lop("gradient_info", sock);
     return;
 }
 
+void start_fuzz_test(int f_len){
+    int sock = 0;
+    
+    //set up buffer
+    out_buf = malloc(10000);
+    if(!out_buf)
+        perror("malloc failed");
+    out_buf1 = malloc(10000);
+    if(!out_buf1)
+        perror("malloc failed");
+    out_buf2 = malloc(10000);
+    if(!out_buf2)
+        perror("malloc failed");
+    
+    len = f_len;
+    // dry run
+    dry_run(out_dir, 0);
+    // fuzz
+        fuzz_lop("gradient_info", sock);
+    return;
+}
 void main(int argc, char*argv[]){
     int opt;
-    while ((opt = getopt(argc, argv, "+i:o:")) > 0)
+    while ((opt = getopt(argc, argv, "+i:o:l:")) > 0)
 
     switch (opt) {
 
@@ -1368,6 +1532,11 @@ void main(int argc, char*argv[]){
         if (out_dir) perror("Multiple -o options not supported");
         out_dir = optarg;
         break;
+      
+      case 'l': /* file len */
+         sscanf (optarg,"%d",&len);
+         printf("mutation len: %d\n", len);
+         break;
       
     default:
         printf("no manual...");
@@ -1386,7 +1555,7 @@ void main(int argc, char*argv[]){
     
     init_forkserver(argv+optind);
     
-    start_fuzz(8447);   
+    start_fuzz(len);   
     printf("total execs %d edge coverage %d.\n", total_execs,count_non_255_bytes(virgin_bits));
     return;
 }

@@ -23,7 +23,7 @@ PORT=12012
 MAX_FILE_SIZE = 10000
 MAX_BITMAP_SIZE = 2000
 #seed = int(time.time())
-round_cnt=0
+round_cnt=1
 seed = 12
 np.random.seed(seed)
 random.seed(seed)
@@ -54,6 +54,10 @@ def process_data():
     # create bitmaps directory to save label
     if os.path.isdir("./bitmaps/") == False:
         os.makedirs('./bitmaps')
+    if os.path.isdir("./splice_seeds/") == False:
+        os.makedirs('./splice_seeds')
+    if os.path.isdir("./vari_seeds/") == False:
+        os.makedirs('./vari_seeds')
     # obtain raw bitmaps
     raw_bitmap = {}
     tmp_cnt = []
@@ -193,7 +197,43 @@ def vectorize_file(fl):
     seed = seed.astype('float32')/255
     return seed
 
-def gen_adv2(f,fl,model,layer_list):
+def splice_seed(fl1, fl2, idxx):
+    tmp1 = open(fl1, 'r').read()
+    ret = 1
+    randd = fl2
+    while(ret == 1):
+        tmp2 = open(randd, 'r').read()
+        if len(tmp1) >=  len(tmp2):
+            lenn = len(tmp2)
+            head = tmp2
+            tail = tmp1
+        else:
+            lenn = len(tmp1)
+            head = tmp1
+            tail = tmp2
+        f_diff = 0
+        l_diff = 0
+        for i in range(lenn):
+            if tmp1[i] != tmp2[i]:
+                f_diff = i
+                break
+        for i in reversed(range(lenn)):
+            if tmp1[i] != tmp2[i]:
+                l_diff = i
+                break
+        if f_diff >= 0 and l_diff >0 and (l_diff - f_diff) >= 2:
+            splice_at = f_diff + random.randint(1,l_diff - f_diff - 1)
+            head = list(head)
+            tail = list(tail)
+            tail[:splice_at] = head[:splice_at]
+            with open ('./splice_seeds/tmp_' + str(idxx), 'w') as f:
+                f.write("".join(tail))
+            ret = 0
+        print((f_diff,l_diff))
+        randd = random.choice(seed_list)
+
+
+def gen_adv2(f,fl,model,layer_list,idxx):
     adv_list = []
     loss = layer_list[-2][1].output[:,f]
     grads = K.gradients(loss,model.input)[0]
@@ -201,12 +241,23 @@ def gen_adv2(f,fl,model,layer_list):
     iterate = K.function([model.input], [loss, grads])
     ll=2
     #fl= random.sample(xrange(SPLIT_RATIO),2)
+    while(fl[0] == fl[1]):
+        fl[1] = random.choice(seed_list)
+
     for index in range(ll):
         x=vectorize_file(fl[index])
         loss_value, grads_value = iterate([x])
-        idx = np.flip(np.argsort(np.absolute(grads_value),axis=1)[:,-1024:].reshape((1024,)),0)
+        idx = np.flip(np.argsort(np.absolute(grads_value),axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)),0)
         val = np.sign(grads_value[0][idx])
         adv_list.append((idx,val,fl[index]))
+
+    if(round_cnt != 0):
+        splice_seed(fl[0], fl[1], idxx)
+        x=vectorize_file('./splice_seeds/tmp_'+str(idxx))
+        loss_value, grads_value = iterate([x])
+        idx = np.flip(np.argsort(np.absolute(grads_value),axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)),0)
+        val = np.sign(grads_value[0][idx])
+        adv_list.append((idx,val,'./splice_seeds/tmp_'+str(idxx)))
     return adv_list
 
 
@@ -217,22 +268,41 @@ def gen_mutate2(model, edge_num):
     if(round_cnt == 0):
         new_seed_list = seed_list
     else:
-        new_seed_list = glob.glob("./seeds/id_"+str(round_cnt-1)+"_*")
+        new_seed_list = glob.glob("./seeds/id_*")
+
+    if len(new_seed_list) < edge_num:
+        rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),edge_num, replace=True)]
+    else:
+        rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),edge_num, replace=False)]
+    rand_seed2 = [seed_list[i] for i in np.random.choice(len(seed_list),edge_num, replace=False)]
+    '''
     if(len(new_seed_list) < (edge_num * 2)):
         rand_seed = random.sample(new_seed_list, len(new_seed_list))
-        rand_seed.extend(random.sample(seed_list, (edge_num * 2 - len(new_seed_list))))
+        res = edge_num * 2 - len(new_seed_list)
+        while(res > len(seed_list)):
+            rand_seed.extend(random.sample(new_seed_list, len(new_seed_list)))
+            res = res - len(new_seed_list)
+        rand_seed.extend(random.sample(seed_list, res)
     else:
         rand_seed = random.sample(new_seed_list, edge_num * 2)
+    '''
     # select output neurons to compute gradient
     interested_indice = np.random.choice(MAX_BITMAP_SIZE, edge_num)
     layer_list = [(layer.name, layer) for layer in model.layers]
 
     with open('gradient_info_p','w') as f:
         for idxx in range(len(interested_indice[:])):
+            if (idxx % 100 == 0):
+                del model
+                K.clear_session()
+                model = build_model()
+                model.load_weights('hard_label.h5')
+                layer_list = [(layer.name, layer) for layer in model.layers]
             print("number of feature "+str(idxx))
             index = int(interested_indice[idxx])
-            fl = rand_seed[idxx*2:idxx*2+2]
-            adv_list = gen_adv2(index,fl,model,layer_list)
+            #fl = rand_seed[idxx*2:idxx*2+2]
+            fl = [rand_seed1[idxx], rand_seed2[idxx]]
+            adv_list = gen_adv2(index,fl,model,layer_list,idxx)
             tmp_list.append(adv_list)
             for ele in adv_list:
                 ele0 = [str(el) for el in ele[0]]
@@ -275,7 +345,8 @@ def gen_grad():
     process_data()
     model = build_model()
     train(model)
-    gen_mutate2(model, 300)
+    model.load_weights('hard_label.h5')
+    gen_mutate2(model, 500)
     round_cnt = round_cnt+1
     print(time.time()-t0)
 
