@@ -1184,8 +1184,18 @@ void gen_mutate(){
             
             write_to_testcase(out_buf1, len);    
             int fault = run_target(1500); 
-            if (fault != 0)
+            if (fault != 0){
                 printf("execute test case failed\n");
+                if(fault == FAULT_CRASH){
+                    char* mut_fn = alloc_printf("%s/crash_%d_%06d", out_dir,round_cnt, mut_cnt);
+                    int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+                    ck_write(mut_fd, out_buf1, len, mut_fn);
+                    free(mut_fn);
+                    close(mut_fd);
+                    mut_cnt = mut_cnt + 1;
+                }
+
+            }
             //save mutations that find new edges.
             if(has_new_bits(virgin_bits)==2){
                 //printf("id:%d len %d find new edge\n",mut_cnt, len);
@@ -1222,8 +1232,17 @@ void gen_mutate(){
             
             write_to_testcase(out_buf2, len);    
             int fault = run_target(1500); 
-            if (fault != 0)
+            if (fault != 0){
                 printf("execute test case failed\n");
+                if(fault == FAULT_CRASH){
+                    char* mut_fn = alloc_printf("%s/crash_%d_%06d", out_dir,round_cnt, mut_cnt);
+                    int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+                    ck_write(mut_fd, out_buf1, len, mut_fn);
+                    free(mut_fn);
+                    close(mut_fd);
+                    mut_cnt = mut_cnt + 1;
+                }
+            }
             //save mutations that find new edges.
             if(has_new_bits(virgin_bits)==2){
                 //printf("id:%d len %d find new edge\n", mut_cnt, len);
@@ -1252,13 +1271,21 @@ void gen_mutate(){
         
         write_to_testcase(out_buf1, len-cut_len);    
         int fault = run_target(1500); 
-        if (fault != 0)
+        if (fault != 0){
             printf("execute test case failed\n");
-
+            if(fault == FAULT_CRASH){
+                char* mut_fn = alloc_printf("%s/crash_%d_%06d", out_dir,round_cnt, mut_cnt);
+                int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+                ck_write(mut_fd, out_buf1, len, mut_fn);
+                free(mut_fn);
+                close(mut_fd);
+                mut_cnt = mut_cnt + 1;
+            }
+        }
                 
         char* mut_fn = alloc_printf("%s/id_%06d", "vari_seeds", mut_cnt);
         int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
-        ck_write(mut_fd, out_buf1, len, mut_fn);
+        ck_write(mut_fd, out_buf1, len-cut_len, mut_fn);
         close(mut_fd);
         free(mut_fn);
         mut_cnt = mut_cnt + 1;
@@ -1282,9 +1309,17 @@ void gen_mutate(){
         memcpy(out_buf3+del_loc+cut_len, out_buf+del_loc, len-del_loc);
         write_to_testcase(out_buf3, len+cut_len);    
         fault = run_target(1500); 
-        if (fault != 0)
+        if (fault != 0){
             printf("execute test case failed\n");
-
+            if(fault == FAULT_CRASH){
+                char* mut_fn = alloc_printf("%s/crash_%d_%06d", out_dir,round_cnt, mut_cnt);
+                int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+                ck_write(mut_fd, out_buf1, len, mut_fn);
+                free(mut_fn);
+                close(mut_fd);
+                mut_cnt = mut_cnt + 1;
+            }
+        }
         
         mut_fn = alloc_printf("%s/id_%06d", "vari_seeds", mut_cnt);
         mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
