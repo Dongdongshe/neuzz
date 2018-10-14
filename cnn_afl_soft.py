@@ -23,7 +23,7 @@ PORT=12012
 MAX_FILE_SIZE = 10000
 MAX_BITMAP_SIZE = 2000
 #seed = int(time.time())
-round_cnt=1
+round_cnt=0
 seed = 12
 np.random.seed(seed)
 random.seed(seed)
@@ -31,6 +31,7 @@ set_random_seed(seed)
 seed_list = glob.glob('./seeds/*')
 test_list = []
 SPLIT_RATIO = len(seed_list)
+orig_seed_list = []
 
 # process training data from afl raw data
 def process_data():
@@ -58,12 +59,17 @@ def process_data():
         os.makedirs('./splice_seeds')
     if os.path.isdir("./vari_seeds/") == False:
         os.makedirs('./vari_seeds')
+    if os.path.isdir("./crashes/") == False:
+        os.makedirs('./crashes')
     # obtain raw bitmaps
     raw_bitmap = {}
     tmp_cnt = []
     for f in seed_list:
         tmp_list = []
-        out = call(['afl-showmap', '-q', '-e', '-o', '/dev/stdout', './size', f])
+        try:
+            out = call(['afl-showmap', '-q', '-e', '-o', '/dev/stdout', './miniunz','-o', f])
+        except subprocess.CalledProcessError:
+            print("find a crash")
         for line in out.splitlines():
             edge = line.split(':')[0]
             tmp_cnt.append(edge)
@@ -233,7 +239,7 @@ def splice_seed(fl1, fl2, idxx):
         randd = random.choice(seed_list)
 
 
-def gen_adv2(f,fl,model,layer_list,idxx):
+def gen_adv2(f,fl,model,layer_list,idxx,splice):
     adv_list = []
     loss = layer_list[-2][1].output[:,f]
     grads = K.gradients(loss,model.input)[0]
@@ -251,15 +257,61 @@ def gen_adv2(f,fl,model,layer_list,idxx):
         val = np.sign(grads_value[0][idx])
         adv_list.append((idx,val,fl[index]))
 
-    if(round_cnt != 0):
-        splice_seed(fl[0], fl[1], idxx)
-        x=vectorize_file('./splice_seeds/tmp_'+str(idxx))
-        loss_value, grads_value = iterate([x])
-        idx = np.flip(np.argsort(np.absolute(grads_value),axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)),0)
-        val = np.sign(grads_value[0][idx])
-        adv_list.append((idx,val,'./splice_seeds/tmp_'+str(idxx)))
+    if(splice== 1):
+        if(round_cnt != 0):
+            if (idxx < 484):
+                splice_seed(fl[0], fl[1], idxx)
+                x=vectorize_file('./splice_seeds/tmp_'+str(idxx))
+                loss_value, grads_value = iterate([x])
+                idx = np.flip(np.argsort(np.absolute(grads_value),axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)),0)
+                val = np.sign(grads_value[0][idx])
+                adv_list.append((idx,val,'./splice_seeds/tmp_'+str(idxx)))
+            else:
+                fl3 = random.choice(seed_list)
+                while(fl[0] != fl3 and fl[1]!= fl3):
+                    fl3 = random.choice(seed_list)
+                x=vectorize_file(fl3)
+                loss_value, grads_value = iterate([x])
+                idx = np.flip(np.argsort(np.absolute(grads_value),axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)),0)
+                val = np.sign(grads_value[0][idx])
+                adv_list.append((idx,val,fl[index]))
+
     return adv_list
 
+
+def gen_mutate3(model, edge_num):
+    tmp_list = []
+    # select seeds
+    print("#######debug" + str(round_cnt))
+    if(round_cnt == 0):
+        new_seed_list = seed_list
+    else:
+        new_seed_list = glob.glob("./seeds/id_*")
+        orig_seed_list = glob.glob("./seeds/id:*")
+
+    if len(new_seed_list) < (edge_num *2):
+        rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),len(new_seed_list), replace=False)]
+        rand_seed1.extend(random.sample(orig_seed_list, 2*edge_num - len(new_seed_list)))
+    else:
+        rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),2 * edge_num, replace=False)]
+
+    # select output neurons to compute gradient
+    interested_indice = np.random.choice(MAX_BITMAP_SIZE, edge_num)
+    layer_list = [(layer.name, layer) for layer in model.layers]
+
+    with open('gradient_info_p','w') as f:
+        for idxx in range(len(interested_indice[:])):
+            print("number of feature "+str(idxx))
+            index = int(interested_indice[idxx])
+            fl = rand_seed1[idxx*2:idxx*2+2]
+            #fl = [rand_seed1[idxx], rand_seed2[idxx]]
+            adv_list = gen_adv2(index,fl,model,layer_list,idxx,0)
+            tmp_list.append(adv_list)
+            for ele in adv_list:
+                ele0 = [str(el) for el in ele[0]]
+                ele1 = [str(int(el)) for el in ele[1]]
+                ele2 = ele[2]
+                f.write(",".join(ele0)+'|'+",".join(ele1)+'|'+ele2+"\n")
 
 def gen_mutate2(model, edge_num):
     tmp_list = []
@@ -274,7 +326,11 @@ def gen_mutate2(model, edge_num):
         rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),edge_num, replace=True)]
     else:
         rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),edge_num, replace=False)]
-    rand_seed2 = [seed_list[i] for i in np.random.choice(len(seed_list),edge_num, replace=False)]
+
+    if len(new_seed_list) < edge_num:
+        rand_seed2 = [seed_list[i] for i in np.random.choice(len(seed_list),edge_num, replace=True)]
+    else:
+        rand_seed2 = [seed_list[i] for i in np.random.choice(len(seed_list),edge_num, replace=False)]
     '''
     if(len(new_seed_list) < (edge_num * 2)):
         rand_seed = random.sample(new_seed_list, len(new_seed_list))
@@ -302,7 +358,7 @@ def gen_mutate2(model, edge_num):
             index = int(interested_indice[idxx])
             #fl = rand_seed[idxx*2:idxx*2+2]
             fl = [rand_seed1[idxx], rand_seed2[idxx]]
-            adv_list = gen_adv2(index,fl,model,layer_list,idxx)
+            adv_list = gen_adv2(index,fl,model,layer_list,idxx,1)
             tmp_list.append(adv_list)
             for ele in adv_list:
                 ele0 = [str(el) for el in ele[0]]
@@ -339,14 +395,17 @@ def train(model):
     # Save model and weights
     model.save_weights("hard_label.h5")
 
-def gen_grad():
+def gen_grad(data):
     global round_cnt
     t0=time.time()
     process_data()
     model = build_model()
     train(model)
-    model.load_weights('hard_label.h5')
-    gen_mutate2(model, 500)
+    #model.load_weights('hard_label.h5')
+    if(data[:5] == "train"):
+        gen_mutate2(model, 500)
+    else:
+        gen_mutate3(model, 50)
     round_cnt = round_cnt+1
     print(time.time()-t0)
 
@@ -360,8 +419,9 @@ def setup_server():
         data = conn.recv(1024)
         if not data: break
         else:
-            gen_grad()
+            gen_grad(data)
+            conn.sendall("start")
     conn.close()
 
-gen_grad()
+gen_grad('sloww')
 setup_server()
