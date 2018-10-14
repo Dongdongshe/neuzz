@@ -5,7 +5,6 @@ from keras.layers import Dense, Dropout, Activation, Flatten, LeakyReLU
 import os
 import numpy as np
 import glob
-import ipdb
 import random
 import math
 from keras.callbacks import ModelCheckpoint
@@ -67,7 +66,7 @@ def process_data():
     for f in seed_list:
         tmp_list = []
         try:
-            out = call(['afl-showmap', '-q', '-e', '-o', '/dev/stdout', './miniunz','-o', f])
+            out = call(['afl-showmap', '-q', '-e', '-o', '/dev/stdout', './nm-new','-C', f])
         except subprocess.CalledProcessError:
             print("find a crash")
         for line in out.splitlines():
@@ -423,5 +422,5 @@ def setup_server():
             conn.sendall("start")
     conn.close()
 
-gen_grad('sloww')
+gen_grad('train')
 setup_server()

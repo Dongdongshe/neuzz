@@ -37,7 +37,7 @@ static int shm_id;
 
 #define HAVOC_BLK_SMALL     2048
 #define HAVOC_BLK_MEDIUM    4096
-#define HAVOC_BLK_LARGE     8192
+#define HAVOC_BLK_LARGE     7400
 
 
 #define HAVOC_BLK_XL        4096
@@ -50,10 +50,10 @@ static int cpu_aff = -1;
 int round_cnt = 0;
 int edge_gain=0;
 
-int stage_num = 0;
+int stage_num = 1;
 int old=0;
 int now=0;
-int fast=0;
+int fast=1;
 char * target_path;
 typedef uint8_t  u8;
 typedef uint16_t u16;
@@ -91,7 +91,7 @@ size_t len;
 int loc[10240];
 int sign[10240];
 //int num_index[23] = {0,2,4,8,16,32,64,128,256,512,1024,1536,2048,2560,3072, 3584,4096,4608,5120, 5632,6144,6656,7103};
-int num_index[14] = {0,2,4,8,16,32,64,128,256,512,1024,2048,4096,8305};
+int num_index[14] = {0,2,4,8,16,32,64,128,256,512,1024,2048,4096,7405};
 
 // file list 
 char **file_list;
@@ -1312,14 +1312,14 @@ void gen_mutate_slow1(){
     
     int tmout_cnt = 0;
     //flip interesting locations within 10 iterations 
-    for(int iter=0 ;iter<520; iter=iter+1){
+    for(int iter=0 ;iter<463; iter=iter+1){
         memcpy(out_buf1, out_buf, len);        
         memcpy(out_buf2, out_buf, len);        
         //find mutation range for every iteration
         int low_index = iter*16;
         int up_index = 16*(iter+1);
-        if(iter == 519)
-            up_index = 8305;
+        if(iter == 462)
+            up_index = 7405;
         u8 up_step = 0;
         u8 low_step = 0;
         for(int index=low_index; index<up_index; index=index+1){
@@ -1354,17 +1354,6 @@ void gen_mutate_slow1(){
                 else
                     out_buf1[loc[index]] = mut_val;
             }
-
-            //total_execs++;
-                /*
-                char* mut_fn = alloc_printf("%s/id_%06d", out_dir, mut_cnt);
-                int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
-                ck_write(mut_fd, out_buf1, len, mut_fn);
-                free(mut_fn);
-                close(mut_fd);
-                mut_cnt = mut_cnt + 1;
-                */
-            
             write_to_testcase(out_buf1, len);    
             int fault = run_target(exec_tmout); 
             if (fault != 0){
@@ -1424,16 +1413,6 @@ void gen_mutate_slow1(){
                 else
                     out_buf2[loc[index]] = mut_val;
             }
-            //total_execs++;
-                /*
-                char* mut_fn = alloc_printf("%s/id_%06d", out_dir, mut_cnt);
-                int mut_fd = open(mut_fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
-                ck_write(mut_fd, out_buf2, len, mut_fn);
-                close(mut_fd);
-                free(mut_fn);
-                mut_cnt = mut_cnt + 1;
-                */
-            
             write_to_testcase(out_buf2, len);    
             int fault = run_target(exec_tmout); 
             if (fault != 0){
@@ -2061,11 +2040,13 @@ void fuzz_lop(char * grad_file, int sock){
             if((line_cnt % 10) == 0){ 
                 printf("$$$$&&&& fuzz %s line_cnt %d\n",fn, line_cnt);
                 printf("edge num %d\n",count_non_255_bytes(virgin_bits));
+		fflush (stdout);
             }
         }
         else{
             printf("$$$$&&&& fuzz %s line_cnt %d\n",fn, line_cnt);
             printf("edge num %d\n",count_non_255_bytes(virgin_bits));
+	    fflush (stdout);
         }
 
         //read seed into mem
