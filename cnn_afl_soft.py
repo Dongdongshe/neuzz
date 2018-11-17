@@ -17,7 +17,7 @@ from collections import Counter
 import socket
 
 HOST='127.0.0.1'
-PORT=12012
+port=12012
 
 MAX_FILE_SIZE = 10000
 MAX_BITMAP_SIZE = 2000
