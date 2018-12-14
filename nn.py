@@ -1,7 +1,7 @@
 import keras
 import pickle
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, Activation, Flatten, LeakyReLU
+from keras.layers import Dense, Dropout, Activation
 import os
 import numpy as np
 import glob
@@ -17,7 +17,7 @@ from collections import Counter
 import socket
 
 HOST='127.0.0.1'
-port=12012
+PORT=12012
 
 MAX_FILE_SIZE = 10000
 MAX_BITMAP_SIZE = 2000
@@ -28,9 +28,8 @@ np.random.seed(seed)
 random.seed(seed)
 set_random_seed(seed)
 seed_list = glob.glob('./seeds/*')
-test_list = []
+new_seeds = glob.glob('./seeds/id_*')
 SPLIT_RATIO = len(seed_list)
-orig_seed_list = []
 
 # process training data from afl raw data
 def process_data():
@@ -38,6 +37,7 @@ def process_data():
     global MAX_FILE_SIZE
     global SPLIT_RATIO
     global seed_list
+    global new_seeds
 
     # shuffle training samples
     seed_list = glob.glob('./seeds/*')
@@ -45,13 +45,16 @@ def process_data():
     SPLIT_RATIO = len(seed_list)
     rand_index = np.arange(SPLIT_RATIO)
     np.random.shuffle(seed_list)
+    new_seeds = glob.glob('./seeds/id_*')
 
     call=subprocess.check_output
+
     # get MAX_FILE_SIZE
     cwd = os.getcwd()
     max_file_name = call(['ls','-S', cwd+'/seeds/']).split('\n')[0].rstrip('\n')
     MAX_FILE_SIZE = os.path.getsize(cwd+'/seeds/'+max_file_name)
-    # create bitmaps directory to save label
+
+    # create directories to save label, spliced seeds, variant length seeds, crashes and mutated seeds.
     if os.path.isdir("./bitmaps/") == False:
         os.makedirs('./bitmaps')
     if os.path.isdir("./splice_seeds/") == False:
@@ -60,13 +63,15 @@ def process_data():
         os.makedirs('./vari_seeds')
     if os.path.isdir("./crashes/") == False:
         os.makedirs('./crashes')
+
     # obtain raw bitmaps
     raw_bitmap = {}
     tmp_cnt = []
+    out = ''
     for f in seed_list:
         tmp_list = []
         try:
-            out = call(['afl-showmap', '-q', '-e', '-o', '/dev/stdout', './nm-new','-C', f])
+            out = call(['afl-showmap', '-q', '-e', '-o', '/dev/stdout', './size', f])
         except subprocess.CalledProcessError:
             print("find a crash")
         for line in out.splitlines():
@@ -75,6 +80,7 @@ def process_data():
             tmp_list.append(edge)
         raw_bitmap[f] = tmp_list
     counter = Counter(tmp_cnt).most_common()
+
     # save bitmaps to individual numpy label
     label = [int(f[0]) for f in counter]
     bitmap = np.zeros((len(seed_list), len(label)))
@@ -83,9 +89,14 @@ def process_data():
         for j in tmp:
             if int(j) in label:
                 bitmap[idx][label.index((int(j)))] = 1
+
+    # label dimension reduction
     fit_bitmap = np.unique(bitmap,axis=1)
     print("data dimension" + str(fit_bitmap.shape))
+
+    # save training data
     MAX_BITMAP_SIZE = fit_bitmap.shape[1]
+
     for idx,i in enumerate(seed_list):
         file_name = "./bitmaps/"+i.split('/')[-1]
         np.save(file_name,fit_bitmap[idx])
@@ -104,23 +115,6 @@ def generate_training_data(lb,ub):
 
     for i in range(lb,ub):
         file_name = "./bitmaps/"+ seed_list[i].split('/')[-1] + ".npy"
-        bitmap[i-lb] = np.load(file_name)
-    return seed,bitmap
-
-# testing data generator
-def generate_testing_data(lb,ub):
-    seed = np.zeros((ub-lb,MAX_FILE_SIZE))
-    bitmap = np.zeros((ub-lb,MAX_BITMAP_SIZE))
-    for i in range(lb,ub):
-        tmp = open(test_list[i],'r').read()
-        if len(tmp) > MAX_FILE_SIZE:
-            tmp=tmp[:7508]
-        ln = len(tmp)
-        if ln < MAX_FILE_SIZE:
-            tmp = tmp + (MAX_FILE_SIZE - ln) * '\0'
-        seed[i-lb] = [ord(j) for j in list(tmp)]
-    for i in range(lb,ub):
-        file_name = "/local/dongdong/to_go/new_fit_bitmaps/" + test_list[i].split('/')[-1] + ".npy"
         bitmap[i-lb] = np.load(file_name)
     return seed,bitmap
 
@@ -149,7 +143,6 @@ def accur_1(y_true,y_pred):
     summ = tf.constant(MAX_BITMAP_SIZE,dtype=tf.float32)
     wrong_num = tf.subtract(summ,tf.reduce_sum(tf.cast(tf.equal(y_true, pred),tf.float32),axis=-1))
     right_1_num = tf.reduce_sum(tf.cast(tf.logical_and(tf.cast(y_true,tf.bool), tf.cast(pred,tf.bool)),tf.float32),axis=-1)
-    #summ_1 = tf.reduce_sum(tf.cast(y_true,tf.float32),axis=-1)
     ret = K.mean(tf.divide(right_1_num,tf.add(right_1_num,wrong_num)))
     return ret
 
@@ -157,38 +150,16 @@ def train_generate(batch_size):
     global seed_list
     while 1:
         np.random.shuffle(seed_list)
+        # load a batch of training data
         for i in range(0,SPLIT_RATIO,batch_size):
-            # create numpy arrays of input data
-            # and labels, from each line in the file
+            # load full batch
             if (i+batch_size) > SPLIT_RATIO:
                 x,y=generate_training_data(i,SPLIT_RATIO)
-                #x = x.reshape((x.shape[0],x.shape[1],1)).astype('float32')/255
                 x = x.astype('float32')/255
+            # load remaining data for last batch
             else:
                 x,y=generate_training_data(i,i+batch_size)
-                #x = x.reshape((x.shape[0],x.shape[1],1)).astype('float32')/255
                 x = x.astype('float32')/255
-                #x = x_train[i:i+batch_size]
-                #y = y_train[i:i+batch_size]
-            yield (x,y)
-
-def test_generate(batch_size):
-    while 1:
-        for i in range(0,len(test_list),batch_size):
-            # create numpy arrays of input data
-            # and labels, from each line in the file
-            if (i+batch_size) > len(test_list):
-                x,y=generate_testing_data(i,len(test_list))
-                #x = x.reshape((x.shape[0],x.shape[1],1)).astype('float32')/255
-                x = x.astype('float32')/255
-                #x = x_train[i+10000:]
-                #y = y_train[i+10000:]
-            else:
-                x,y=generate_testing_data(i,i+batch_size)
-                #x = x.reshape((x.shape[0],x.shape[1],1)).astype('float32')/255
-                x = x.astype('float32')/255
-                #x = x_train[i+10000:i+batch_size+10000]
-                #y = y_train[i+10000:i+batch_size+10000]
             yield (x,y)
 
 # get vector representation of input
@@ -202,6 +173,7 @@ def vectorize_file(fl):
     seed = seed.astype('float32')/255
     return seed
 
+# splice two seeds to a new seed
 def splice_seed(fl1, fl2, idxx):
     tmp1 = open(fl1, 'r').read()
     ret = 1
@@ -237,15 +209,13 @@ def splice_seed(fl1, fl2, idxx):
         print((f_diff,l_diff))
         randd = random.choice(seed_list)
 
-
+# compute gradient for given input
 def gen_adv2(f,fl,model,layer_list,idxx,splice):
     adv_list = []
     loss = layer_list[-2][1].output[:,f]
     grads = K.gradients(loss,model.input)[0]
-    #grads /= (K.sqrt(K.sum(K.square(grads))))
     iterate = K.function([model.input], [loss, grads])
     ll=2
-    #fl= random.sample(xrange(SPLIT_RATIO),2)
     while(fl[0] == fl[1]):
         fl[1] = random.choice(seed_list)
 
@@ -257,8 +227,9 @@ def gen_adv2(f,fl,model,layer_list,idxx,splice):
         adv_list.append((idx,val,fl[index]))
 
     if(splice== 1):
+        # do not generate spliced seed for the first round
         if(round_cnt != 0):
-            if (idxx < 484):
+            if(round_cnt%2 == 0):
                 splice_seed(fl[0], fl[1], idxx)
                 x=vectorize_file('./splice_seeds/tmp_'+str(idxx))
                 loss_value, grads_value = iterate([x])
@@ -266,98 +237,92 @@ def gen_adv2(f,fl,model,layer_list,idxx,splice):
                 val = np.sign(grads_value[0][idx])
                 adv_list.append((idx,val,'./splice_seeds/tmp_'+str(idxx)))
             else:
-                fl3 = random.choice(seed_list)
-                while(fl[0] != fl3 and fl[1]!= fl3):
-                    fl3 = random.choice(seed_list)
-                x=vectorize_file(fl3)
+                splice_seed(fl[0], fl[1], idxx+500)
+                x=vectorize_file('./splice_seeds/tmp_'+str(idxx+500))
                 loss_value, grads_value = iterate([x])
                 idx = np.flip(np.argsort(np.absolute(grads_value),axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)),0)
                 val = np.sign(grads_value[0][idx])
-                adv_list.append((idx,val,fl[index]))
+                adv_list.append((idx,val,'./splice_seeds/tmp_'+str(idxx+500)))
 
     return adv_list
 
 
-def gen_mutate3(model, edge_num):
+# compute gradient for given input without sign
+def gen_adv3(f,fl,model,layer_list,idxx,splice):
+    adv_list = []
+    loss = layer_list[-2][1].output[:,f]
+    grads = K.gradients(loss,model.input)[0]
+    iterate = K.function([model.input], [loss, grads])
+    ll=2
+    while(fl[0] == fl[1]):
+        fl[1] = random.choice(seed_list)
+
+    for index in range(ll):
+        x=vectorize_file(fl[index])
+        loss_value, grads_value = iterate([x])
+        idx = np.flip(np.argsort(np.absolute(grads_value),axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)),0)
+        #val = np.sign(grads_value[0][idx])
+        val = np.random.choice([1,-1], MAX_FILE_SIZE, replace=True)
+        adv_list.append((idx,val,fl[index]))
+
+    if(splice== 1):
+        # do not generate spliced seed for the first round
+        if(round_cnt != 0):
+            splice_seed(fl[0], fl[1], idxx)
+            x=vectorize_file('./splice_seeds/tmp_'+str(idxx))
+            loss_value, grads_value = iterate([x])
+            idx = np.flip(np.argsort(np.absolute(grads_value),axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)),0)
+            #val = np.sign(grads_value[0][idx])
+            val = np.random.choice([1,-1], MAX_FILE_SIZE, replace=True)
+            adv_list.append((idx,val,'./splice_seeds/tmp_'+str(idxx)))
+
+    return adv_list
+
+
+# grenerate gradient information to guide furture muatation
+def gen_mutate2(model, edge_num, sign):
     tmp_list = []
     # select seeds
     print("#######debug" + str(round_cnt))
     if(round_cnt == 0):
         new_seed_list = seed_list
     else:
-        new_seed_list = glob.glob("./seeds/id_*")
-        orig_seed_list = glob.glob("./seeds/id:*")
-
-    if len(new_seed_list) < (edge_num *2):
-        rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),len(new_seed_list), replace=False)]
-        rand_seed1.extend(random.sample(orig_seed_list, 2*edge_num - len(new_seed_list)))
-    else:
-        rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),2 * edge_num, replace=False)]
-
-    # select output neurons to compute gradient
-    interested_indice = np.random.choice(MAX_BITMAP_SIZE, edge_num)
-    layer_list = [(layer.name, layer) for layer in model.layers]
-
-    with open('gradient_info_p','w') as f:
-        for idxx in range(len(interested_indice[:])):
-            print("number of feature "+str(idxx))
-            index = int(interested_indice[idxx])
-            fl = rand_seed1[idxx*2:idxx*2+2]
-            #fl = [rand_seed1[idxx], rand_seed2[idxx]]
-            adv_list = gen_adv2(index,fl,model,layer_list,idxx,0)
-            tmp_list.append(adv_list)
-            for ele in adv_list:
-                ele0 = [str(el) for el in ele[0]]
-                ele1 = [str(int(el)) for el in ele[1]]
-                ele2 = ele[2]
-                f.write(",".join(ele0)+'|'+",".join(ele1)+'|'+ele2+"\n")
-
-def gen_mutate2(model, edge_num):
-    tmp_list = []
-    # select seeds
-    print("#######debug" + str(round_cnt))
-    if(round_cnt == 0):
-        new_seed_list = seed_list
-    else:
-        new_seed_list = glob.glob("./seeds/id_*")
+        new_seed_list = new_seeds
 
     if len(new_seed_list) < edge_num:
         rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),edge_num, replace=True)]
     else:
         rand_seed1 = [new_seed_list[i] for i in np.random.choice(len(new_seed_list),edge_num, replace=False)]
-
     if len(new_seed_list) < edge_num:
         rand_seed2 = [seed_list[i] for i in np.random.choice(len(seed_list),edge_num, replace=True)]
     else:
         rand_seed2 = [seed_list[i] for i in np.random.choice(len(seed_list),edge_num, replace=False)]
-    '''
-    if(len(new_seed_list) < (edge_num * 2)):
-        rand_seed = random.sample(new_seed_list, len(new_seed_list))
-        res = edge_num * 2 - len(new_seed_list)
-        while(res > len(seed_list)):
-            rand_seed.extend(random.sample(new_seed_list, len(new_seed_list)))
-            res = res - len(new_seed_list)
-        rand_seed.extend(random.sample(seed_list, res)
+
+    # function pointer for gradient computation
+    fn = gen_adv2
+    if (sign):
+        fn = gen_adv2
     else:
-        rand_seed = random.sample(new_seed_list, edge_num * 2)
-    '''
+        fn = gen_adv3
+
     # select output neurons to compute gradient
     interested_indice = np.random.choice(MAX_BITMAP_SIZE, edge_num)
     layer_list = [(layer.name, layer) for layer in model.layers]
 
     with open('gradient_info_p','w') as f:
         for idxx in range(len(interested_indice[:])):
+            # kears's would stall after multiple gradient compuation. Release memory and reload model to fix it.
             if (idxx % 100 == 0):
                 del model
                 K.clear_session()
                 model = build_model()
                 model.load_weights('hard_label.h5')
                 layer_list = [(layer.name, layer) for layer in model.layers]
+
             print("number of feature "+str(idxx))
             index = int(interested_indice[idxx])
-            #fl = rand_seed[idxx*2:idxx*2+2]
             fl = [rand_seed1[idxx], rand_seed2[idxx]]
-            adv_list = gen_adv2(index,fl,model,layer_list,idxx,1)
+            adv_list = fn(index,fl,model,layer_list,idxx,1)
             tmp_list.append(adv_list)
             for ele in adv_list:
                 ele0 = [str(el) for el in ele[0]]
@@ -380,6 +345,7 @@ def build_model():
 
     model.compile(loss='binary_crossentropy', optimizer=opt, metrics=[accur_1])
     model.summary()
+
     return model
 
 def train(model):
@@ -390,7 +356,6 @@ def train(model):
               steps_per_epoch = (SPLIT_RATIO/16 + 1),
               epochs=100,
               verbose=1, callbacks=callbacks_list)
-              #validation_data=test_generate(128),validation_steps=((len(test_list))/128+1))#,callbacks=[callback])
     # Save model and weights
     model.save_weights("hard_label.h5")
 
@@ -402,9 +367,9 @@ def gen_grad(data):
     train(model)
     #model.load_weights('hard_label.h5')
     if(data[:5] == "train"):
-        gen_mutate2(model, 500)
+        gen_mutate2(model, 500, True)
     else:
-        gen_mutate3(model, 50)
+        gen_mutate2(model, 500, False)
     round_cnt = round_cnt+1
     print(time.time()-t0)
 
@@ -414,6 +379,8 @@ def setup_server():
     sock.listen(1)
     conn, addr = sock.accept()
     print('connected by neuzz execution moduel'+str(addr))
+    gen_grad('train')
+    conn.sendall("start")
     while True:
         data = conn.recv(1024)
         if not data: break
@@ -422,5 +389,4 @@ def setup_server():
             conn.sendall("start")
     conn.close()
 
-gen_grad('train')
 setup_server()
