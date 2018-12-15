@@ -818,10 +818,6 @@ static void get_core_count(void) {
 
         printf("System under apparent load, performance may be spotty.\n");
 
-      } else if (cur_runnable + 1 <= cpu_core_count) {
-
-        printf("Try parallel jobs - see %s/parallel_fuzzing.txt.\n", "no doc path");
-  
       }
 
     }
