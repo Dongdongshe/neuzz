@@ -15,14 +15,16 @@ from tensorflow import set_random_seed
 import subprocess
 from collections import Counter
 import socket
+import sys
 
 HOST='127.0.0.1'
 PORT=12012
 
 MAX_FILE_SIZE = 10000
 MAX_BITMAP_SIZE = 2000
-#seed = int(time.time())
 round_cnt=0
+# Choose a seed for random initilzation
+#seed = int(time.time())
 seed = 12
 np.random.seed(seed)
 random.seed(seed)
@@ -30,6 +32,8 @@ set_random_seed(seed)
 seed_list = glob.glob('./seeds/*')
 new_seeds = glob.glob('./seeds/id_*')
 SPLIT_RATIO = len(seed_list)
+# get binary argv
+argvv = sys.argv.pop(0)
 
 # process training data from afl raw data
 def process_data():
@@ -71,7 +75,7 @@ def process_data():
     for f in seed_list:
         tmp_list = []
         try:
-            out = call(['afl-showmap', '-q', '-e', '-o', '/dev/stdout', './size', f])
+            out = call(['afl-showmap', '-q', '-e', '-o', '/dev/stdout'] + argvv + [f])
         except subprocess.CalledProcessError:
             print("find a crash")
         for line in out.splitlines():
@@ -96,7 +100,6 @@ def process_data():
 
     # save training data
     MAX_BITMAP_SIZE = fit_bitmap.shape[1]
-
     for idx,i in enumerate(seed_list):
         file_name = "./bitmaps/"+i.split('/')[-1]
         np.save(file_name,fit_bitmap[idx])

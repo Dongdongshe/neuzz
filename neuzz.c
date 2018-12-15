@@ -22,7 +22,9 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <time.h>
- 
+
+/* Most of code is borrowed directly from AFL fuzzer (https://github.com/mirrorer/afl), credits to Michal Zalewski */
+
 /* Fork server init timeout multiplier: we'll wait the user-selected timeout plus this much for the fork server to spin up. */ 
 #define FORK_WAIT_MULT      10
 /* Environment variable used to pass SHM ID to the called program. */
@@ -38,10 +40,13 @@
 /* Smoothing divisor for CPU load and exec speed stats (1 - no smoothing). */
 #define AVG_SMOOTHING       16
 /* Caps on block sizes for inserion and deletion operations. The set of numbers are adaptive to file length and the defalut max file length is 10000. */
+/* default setting, will be changed later accroding to file len */
+int havoc_blk_small = 2048;
+int havoc_blk_medium = 4096;
+int havoc_blk_large = 8192;
 #define HAVOC_BLK_SMALL     2048
 #define HAVOC_BLK_MEDIUM    4096
 #define HAVOC_BLK_LARGE     7402
-#define HAVOC_BLK_XL        4096
  
 #define MEM_BARRIER() \
     asm volatile("" ::: "memory")
@@ -124,8 +129,11 @@ char *out_buf, *out_buf1, *out_buf2, *out_buf3;
 size_t len;                             /* Maximum file length for every mutation */
 int loc[10000];                         /* Array to store critical bytes locations*/
 int sign[10000];                        /* Array to store sign of critical bytes  */
+
+/* more fined grined mutation can have better results but slower*/
 //int num_index[23] = {0,2,4,8,16,32,64,128,256,512,1024,1536,2048,2560,3072, 3584,4096,4608,5120, 5632,6144,6656,7103};
-int num_index[14] = {0,2,4,8,16,32,64,128,256,512,1024,2048,4096,7401};
+/* default setting, will be change according to different file length */
+int num_index[14] = {0,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192};
 
 enum {
   /* 00 */ FAULT_NONE,
@@ -1130,15 +1138,15 @@ static u32 choose_block_len(u32 limit) {
   switch ((random()%3)) {
 
     case 0:  min_value = 1;
-             max_value = HAVOC_BLK_SMALL;
+             max_value = havoc_blk_small;
              break;
 
-    case 1:  min_value = HAVOC_BLK_SMALL;
-             max_value = HAVOC_BLK_MEDIUM;
+    case 1:  min_value = havoc_blk_small;
+             max_value = havoc_blk_medium;
              break;
 
-    case 2:  min_value = HAVOC_BLK_MEDIUM;
-             max_value = HAVOC_BLK_LARGE;
+    case 2:  min_value = havoc_blk_medium;
+             max_value = havoc_blk_large;
   }
 
   if (min_value >= limit) min_value = 1;
@@ -2001,6 +2009,20 @@ void main(int argc, char*argv[]){
       
       case 'l': /* file len */
          sscanf (optarg,"%ld",&len);
+         if(len > 7000)
+         {
+             num_index[13] = (len - 1);
+             havoc_blk_large = (len - 1);
+         }
+         else if (len > 4000)
+         {
+             num_index[13] = (len - 1);
+             num_index[12] = 3072;
+             havoc_blk_large = (len - 1);
+             havoc_blk_medium = 2048; 
+             havoc_blk_small = 1024;
+         }
+         printf("num_index %d %d small %d medium %d large %d\n", num_index[12], num_index[13], havoc_blk_small, havoc_blk_medium, havoc_blk_large);
          printf("mutation len: %ld\n", len);
          break;
       
