@@ -21,6 +21,10 @@ open another terminal, start neuzz module.
     #./neuzz -i in_dir -o out_dir -l mutation_len [program path [arguments]] @@
     ./neuzz -i neuzz_in -o seeds -l 7506 ./readelf -a @@  
 ```
+If you want to try NEUZZ on a new program, 
+1. Compile the new program from source code using afl-gcc.
+2. Collect the training data by running AFL on the binary for a while(about an hour), then copy the queue folder to neuzz_in.
+3. Follow the above two steps to start NN module and NEUZZ module.
 ## Sample programs
 Try 10 real-world programs on NEUZZ. Check setup details at programs/[program names]/README.
 

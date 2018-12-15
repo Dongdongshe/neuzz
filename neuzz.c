@@ -2005,6 +2005,7 @@ void main(int argc, char*argv[]){
       
       case 'l': /* file len */
          sscanf (optarg,"%ld",&len);
+         /* change num_index and havoc_blk_* according to file len */
          if(len > 7000)
          {
              num_index[13] = (len - 1);

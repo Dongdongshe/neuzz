@@ -1,0 +1,16 @@
+1. The tested binaries are compiled into 32bit format (to compare with Vuzzer). NEUZZ can actually run on any 64bit binaries. Install some required libraies for 32bit binaries.
+sudo dpkg --add-architecture i386
+sudo apt-get update
+sudo apt-get install libc6:i386 libncurses5:i386 libstdc++6:i386 lib32z1
+
+2. Copy neuzz, nn.py, afl-showmap to this directory.
+
+3. Create output directory
+  mkdir seeds
+
+3. Open a terminal to start NN module.
+  python nn.py ./nm-new -C  
+
+4. Open another terminal to start NEUZZ module.
+  # -l, file len is obtained by maximum file lens in the neuzz_in ( ls -lS neuzz_in|head )
+  ./neuzz -i neuzz_in -o seeds -l 7407 ./nm-new -C @@ 
