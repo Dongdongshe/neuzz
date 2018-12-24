@@ -9,6 +9,7 @@
 ```sh
     cd /sys/devices/system/cpu
     echo performance | tee cpu*/cpufreq/scaling_governor
+    echo core >/proc/sys/kernel/core_pattern
 ```
 
 3. Copy neuzz, nn.py, afl-showmap to this directory.
