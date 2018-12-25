@@ -1,5 +1,5 @@
 # NEUZZ: a neural-network-assisted fuzzer (S&P'19)
-See IEEE S&P (Oakland)'19 paper [NEUZZ: Efficient Fuzzing with Neural Program Smoothing](https://arxiv.org/abs/1807.05620) for details.
+See IEEE S&P(Oakland)'19 paper [NEUZZ: Efficient Fuzzing with Neural Program Smoothing](https://arxiv.org/abs/1807.05620) for details.
 ## Prerequisite
 Tested on Ubuntu 16.04 and 18.04 with Tensorflow 1.8.0 and Keras 2.2.3
 - Python 2.7
