@@ -1,11 +1,11 @@
 # NEUZZ: a neural-network-assisted fuzzer (S&P'19)
 See IEEE S&P(Oakland)'19 paper [NEUZZ: Efficient Fuzzing with Neural Program Smoothing](https://arxiv.org/abs/1807.05620) for details.
 ## Prerequisite
-Tested on a machine with Nvidia 1080Ti, Ubuntu 16.04/18.04, Tensorflow 1.8.0 and Keras 2.2.3
+Tested on a machine with Nvidia 1080Ti, Ubuntu 16.04/18.04, Tensorflow 1.8.0 and Keras 2.2.3.
+We recommend running NEUZZ on a machine with a Nvidia 1080Ti or higher for efficent NN training.
 - Python 2.7
 - Tensorflow
 - Keras
-We recommend running NEUZZ on a machine with a Nvidia 1080Ti or higher for efficent NN training.
 ## Build
 ```bash
     gcc -O3 -funroll-loops ./neuzz.c -o neuzz
