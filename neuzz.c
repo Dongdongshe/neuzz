@@ -1817,8 +1817,8 @@ void copy_seeds(char * in_dir, char * out_dir){
     while((de = readdir(dp)) != NULL){ 
          if(strcmp(".",de->d_name) == 0 || strcmp("..",de->d_name) == 0)
             continue;
-        sprintf(src, "%s%s", in_dir, de->d_name);
-        sprintf(dst, "%s%s", out_dir, de->d_name);
+        sprintf(src, "%s/%s", in_dir, de->d_name);
+        sprintf(dst, "%s/%s", out_dir, de->d_name);
         copy_file(src, dst);
     }
     closedir(dp);
