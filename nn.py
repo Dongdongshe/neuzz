@@ -33,7 +33,7 @@ seed_list = glob.glob('./seeds/*')
 new_seeds = glob.glob('./seeds/id_*')
 SPLIT_RATIO = len(seed_list)
 # get binary argv
-argvv = sys.argv.pop(0)
+argvv = sys.argv[1:]
 
 # process training data from afl raw data
 def process_data():
