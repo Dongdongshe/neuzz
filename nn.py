@@ -33,7 +33,7 @@ seed_list = glob.glob('./seeds/*')
 new_seeds = glob.glob('./seeds/id_*')
 SPLIT_RATIO = len(seed_list)
 # get binary argv
-argvv = sys.argv.pop(0)
+argvv = sys.argv.pop(1)
 
 # process training data from afl raw data
 def process_data():
@@ -77,9 +77,9 @@ def process_data():
         try:
             # append "-o tmp_file" to strip's arguments to avoid tampering tested binary.
             if argvv[0] == './strip':
-                out = call(['./afl-showmap', '-q', '-e', '-o', '/dev/stdout'] + argvv + [f] + ['-o', 'tmp_file'])
+                out = call(['./afl-showmap', '-q', '-e', '-o', '/dev/stdout'] + [argvv] + [f] + ['-o', 'tmp_file'])
             else:
-                out = call(['./afl-showmap', '-q', '-e', '-o', '/dev/stdout'] + argvv + [f])
+                out = call(['./afl-showmap', '-q', '-e', '-o', '/dev/stdout'] + [argvv] + [f])
         except subprocess.CalledProcessError:
             print("find a crash")
         for line in out.splitlines():
