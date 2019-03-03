@@ -13,6 +13,11 @@
 ```
 
 3. Copy neuzz, nn.py, afl-showmap to this directory.
+```
+cp /path_to_neuzz/neuzz /path_to_neuzz/programs/readelf
+cp /path_to_neuzz/nn.py /path_to_neuzz/programs/readelf
+cp /path_to_neuzz/alf-showmap /path_to_neuzz/programs/readelf
+```
 
 4. Create output directory
 ```sh  
