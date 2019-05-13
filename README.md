@@ -29,4 +29,7 @@ If you want to try NEUZZ on a new program,
 ## Sample programs
 Try 10 real-world programs on NEUZZ. Check setup details at programs/[program names]/README.
 
+## Contact
+Feel free to send me email about Neuzz. dongdong at cs.columbia.edu
+
 
