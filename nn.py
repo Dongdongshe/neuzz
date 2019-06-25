@@ -1,21 +1,20 @@
 import os
 import sys
 import glob
-import socket
-
+import math
+import time
 import keras
+import random
+import socket
+import subprocess
+import numpy as np
+import tensorflow as tf
+import keras.backend as K
+from collections import Counter
+from tensorflow import set_random_seed
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Activation
-import numpy as np
-import random
-import math
 from keras.callbacks import ModelCheckpoint
-import time
-import keras.backend as K
-import tensorflow as tf
-from tensorflow import set_random_seed
-import subprocess
-from collections import Counter
 
 HOST = '127.0.0.1'
 PORT = 12012
