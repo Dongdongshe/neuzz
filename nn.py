@@ -56,7 +56,7 @@ def process_data():
 
     # get MAX_FILE_SIZE
     cwd = os.getcwd()
-    max_file_name = call(['ls', '-S', cwd + '/seeds/']).split('\n')[0].rstrip('\n')
+    max_file_name = call(['ls', '-S', cwd + '/seeds/']).decode('utf8').split('\n')[0].rstrip('\n')
     MAX_FILE_SIZE = os.path.getsize(cwd + '/seeds/' + max_file_name)
 
     # create directories to save label, spliced seeds, variant length seeds, crashes and mutated seeds.
@@ -84,7 +84,7 @@ def process_data():
         except subprocess.CalledProcessError:
             print("find a crash")
         for line in out.splitlines():
-            edge = line.split(':')[0]
+            edge = line.split(b':')[0]
             tmp_cnt.append(edge)
             tmp_list.append(edge)
         raw_bitmap[f] = tmp_list
@@ -115,11 +115,11 @@ def generate_training_data(lb, ub):
     seed = np.zeros((ub - lb, MAX_FILE_SIZE))
     bitmap = np.zeros((ub - lb, MAX_BITMAP_SIZE))
     for i in range(lb, ub):
-        tmp = open(seed_list[i], 'r').read()
+        tmp = open(seed_list[i], 'rb').read()
         ln = len(tmp)
         if ln < MAX_FILE_SIZE:
-            tmp = tmp + (MAX_FILE_SIZE - ln) * '\0'
-        seed[i - lb] = [ord(j) for j in list(tmp)]
+            tmp = tmp + (MAX_FILE_SIZE - ln) * b'\x00'
+        seed[i - lb] = [j for j in bytearray(tmp)]
 
     for i in range(lb, ub):
         file_name = "./bitmaps/" + seed_list[i].split('/')[-1] + ".npy"
@@ -181,11 +181,11 @@ def train_generate(batch_size):
 
 def vectorize_file(fl):
     seed = np.zeros((1, MAX_FILE_SIZE))
-    tmp = open(fl, 'r').read()
+    tmp = open(fl, 'rb').read()
     ln = len(tmp)
     if ln < MAX_FILE_SIZE:
-        tmp = tmp + (MAX_FILE_SIZE - ln) * '\0'
-    seed[0] = [ord(j) for j in list(tmp)]
+        tmp = tmp + (MAX_FILE_SIZE - ln) * b'\x00'
+    seed[0] = [j for j in bytearray(tmp)]
     seed = seed.astype('float32') / 255
     return seed
 
@@ -404,14 +404,14 @@ def setup_server():
     conn, addr = sock.accept()
     print('connected by neuzz execution moduel' + str(addr))
     gen_grad('train')
-    conn.sendall("start")
+    conn.sendall(b"start")
     while True:
         data = conn.recv(1024)
         if not data:
             break
         else:
             gen_grad(data)
-            conn.sendall("start")
+            conn.sendall(b"start")
     conn.close()
 
 
