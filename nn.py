@@ -193,11 +193,11 @@ def vectorize_file(fl):
 
 
 def splice_seed(fl1, fl2, idxx):
-    tmp1 = open(fl1, 'r').read()
+    tmp1 = open(fl1, 'rb').read()
     ret = 1
     randd = fl2
     while(ret == 1):
-        tmp2 = open(randd, 'r').read()
+        tmp2 = open(randd, 'rb').read()
         if len(tmp1) >= len(tmp2):
             lenn = len(tmp2)
             head = tmp2
@@ -221,8 +221,8 @@ def splice_seed(fl1, fl2, idxx):
             head = list(head)
             tail = list(tail)
             tail[:splice_at] = head[:splice_at]
-            with open('./splice_seeds/tmp_' + str(idxx), 'w') as f:
-                f.write("".join(tail))
+            with open('./splice_seeds/tmp_' + str(idxx), 'wb') as f:
+                f.write(bytearray(tail))
             ret = 0
         print((f_diff, l_diff))
         randd = random.choice(seed_list)
