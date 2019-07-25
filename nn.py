@@ -1,3 +1,7 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+
 import os
 import sys
 import glob
@@ -23,7 +27,7 @@ MAX_FILE_SIZE = 10000
 MAX_BITMAP_SIZE = 2000
 round_cnt = 0
 # Choose a seed for random initilzation
-#seed = int(time.time())
+# seed = int(time.time())
 seed = 12
 np.random.seed(seed)
 random.seed(seed)
@@ -34,9 +38,8 @@ SPLIT_RATIO = len(seed_list)
 # get binary argv
 argvv = sys.argv[1:]
 
+
 # process training data from afl raw data
-
-
 def process_data():
     global MAX_BITMAP_SIZE
     global MAX_FILE_SIZE
@@ -60,14 +63,10 @@ def process_data():
     MAX_FILE_SIZE = os.path.getsize(cwd + '/seeds/' + max_file_name)
 
     # create directories to save label, spliced seeds, variant length seeds, crashes and mutated seeds.
-    if os.path.isdir("./bitmaps/") == False:
-        os.makedirs('./bitmaps')
-    if os.path.isdir("./splice_seeds/") == False:
-        os.makedirs('./splice_seeds')
-    if os.path.isdir("./vari_seeds/") == False:
-        os.makedirs('./vari_seeds')
-    if os.path.isdir("./crashes/") == False:
-        os.makedirs('./crashes')
+    os.path.isdir("./bitmaps/") or os.makedirs("./bitmaps")
+    os.path.isdir("./splice_seeds/") or os.makedirs("./splice_seeds")
+    os.path.isdir("./vari_seeds/") or os.makedirs("./vari_seeds")
+    os.path.isdir("./crashes/") or os.makedirs("./crashes")
 
     # obtain raw bitmaps
     raw_bitmap = {}
@@ -126,9 +125,8 @@ def generate_training_data(lb, ub):
         bitmap[i - lb] = np.load(file_name)
     return seed, bitmap
 
+
 # learning rate decay
-
-
 def step_decay(epoch):
     initial_lrate = 0.001
     drop = 0.7
@@ -138,6 +136,7 @@ def step_decay(epoch):
 
 
 class LossHistory(keras.callbacks.Callback):
+
     def on_train_begin(self, logs={}):
         self.losses = []
         self.lr = []
@@ -147,17 +146,15 @@ class LossHistory(keras.callbacks.Callback):
         self.lr.append(step_decay(len(self.losses)))
         print(step_decay(len(self.losses)))
 
+
 # compute jaccard accuracy for multiple label
-
-
 def accur_1(y_true, y_pred):
     y_true = tf.round(y_true)
     pred = tf.round(y_pred)
     summ = tf.constant(MAX_BITMAP_SIZE, dtype=tf.float32)
     wrong_num = tf.subtract(summ, tf.reduce_sum(tf.cast(tf.equal(y_true, pred), tf.float32), axis=-1))
     right_1_num = tf.reduce_sum(tf.cast(tf.logical_and(tf.cast(y_true, tf.bool), tf.cast(pred, tf.bool)), tf.float32), axis=-1)
-    ret = K.mean(tf.divide(right_1_num, tf.add(right_1_num, wrong_num)))
-    return ret
+    return K.mean(tf.divide(right_1_num, tf.add(right_1_num, wrong_num)))
 
 
 def train_generate(batch_size):
@@ -176,9 +173,8 @@ def train_generate(batch_size):
                 x = x.astype('float32') / 255
             yield (x, y)
 
+
 # get vector representation of input
-
-
 def vectorize_file(fl):
     seed = np.zeros((1, MAX_FILE_SIZE))
     tmp = open(fl, 'rb').read()
@@ -189,14 +185,13 @@ def vectorize_file(fl):
     seed = seed.astype('float32') / 255
     return seed
 
+
 # splice two seeds to a new seed
-
-
 def splice_seed(fl1, fl2, idxx):
     tmp1 = open(fl1, 'rb').read()
     ret = 1
     randd = fl2
-    while(ret == 1):
+    while ret == 1:
         tmp2 = open(randd, 'rb').read()
         if len(tmp1) >= len(tmp2):
             lenn = len(tmp2)
@@ -224,19 +219,18 @@ def splice_seed(fl1, fl2, idxx):
             with open('./splice_seeds/tmp_' + str(idxx), 'wb') as f:
                 f.write(bytearray(tail))
             ret = 0
-        print((f_diff, l_diff))
+        print(f_diff, l_diff)
         randd = random.choice(seed_list)
 
+
 # compute gradient for given input
-
-
 def gen_adv2(f, fl, model, layer_list, idxx, splice):
     adv_list = []
     loss = layer_list[-2][1].output[:, f]
     grads = K.gradients(loss, model.input)[0]
     iterate = K.function([model.input], [loss, grads])
     ll = 2
-    while(fl[0] == fl[1]):
+    while fl[0] == fl[1]:
         fl[1] = random.choice(seed_list)
 
     for index in range(ll):
@@ -246,23 +240,22 @@ def gen_adv2(f, fl, model, layer_list, idxx, splice):
         val = np.sign(grads_value[0][idx])
         adv_list.append((idx, val, fl[index]))
 
-    if(splice == 1):
-        # do not generate spliced seed for the first round
-        if(round_cnt != 0):
-            if(round_cnt % 2 == 0):
-                splice_seed(fl[0], fl[1], idxx)
-                x = vectorize_file('./splice_seeds/tmp_' + str(idxx))
-                loss_value, grads_value = iterate([x])
-                idx = np.flip(np.argsort(np.absolute(grads_value), axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)), 0)
-                val = np.sign(grads_value[0][idx])
-                adv_list.append((idx, val, './splice_seeds/tmp_' + str(idxx)))
-            else:
-                splice_seed(fl[0], fl[1], idxx + 500)
-                x = vectorize_file('./splice_seeds/tmp_' + str(idxx + 500))
-                loss_value, grads_value = iterate([x])
-                idx = np.flip(np.argsort(np.absolute(grads_value), axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)), 0)
-                val = np.sign(grads_value[0][idx])
-                adv_list.append((idx, val, './splice_seeds/tmp_' + str(idxx + 500)))
+    # do not generate spliced seed for the first round
+    if splice == 1 and round_cnt != 0:
+        if round_cnt % 2 == 0:
+            splice_seed(fl[0], fl[1], idxx)
+            x = vectorize_file('./splice_seeds/tmp_' + str(idxx))
+            loss_value, grads_value = iterate([x])
+            idx = np.flip(np.argsort(np.absolute(grads_value), axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)), 0)
+            val = np.sign(grads_value[0][idx])
+            adv_list.append((idx, val, './splice_seeds/tmp_' + str(idxx)))
+        else:
+            splice_seed(fl[0], fl[1], idxx + 500)
+            x = vectorize_file('./splice_seeds/tmp_' + str(idxx + 500))
+            loss_value, grads_value = iterate([x])
+            idx = np.flip(np.argsort(np.absolute(grads_value), axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)), 0)
+            val = np.sign(grads_value[0][idx])
+            adv_list.append((idx, val, './splice_seeds/tmp_' + str(idxx + 500)))
 
     return adv_list
 
@@ -274,7 +267,7 @@ def gen_adv3(f, fl, model, layer_list, idxx, splice):
     grads = K.gradients(loss, model.input)[0]
     iterate = K.function([model.input], [loss, grads])
     ll = 2
-    while(fl[0] == fl[1]):
+    while fl[0] == fl[1]:
         fl[1] = random.choice(seed_list)
 
     for index in range(ll):
@@ -285,16 +278,15 @@ def gen_adv3(f, fl, model, layer_list, idxx, splice):
         val = np.random.choice([1, -1], MAX_FILE_SIZE, replace=True)
         adv_list.append((idx, val, fl[index]))
 
-    if(splice == 1):
-        # do not generate spliced seed for the first round
-        if(round_cnt != 0):
-            splice_seed(fl[0], fl[1], idxx)
-            x = vectorize_file('./splice_seeds/tmp_' + str(idxx))
-            loss_value, grads_value = iterate([x])
-            idx = np.flip(np.argsort(np.absolute(grads_value), axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)), 0)
-            #val = np.sign(grads_value[0][idx])
-            val = np.random.choice([1, -1], MAX_FILE_SIZE, replace=True)
-            adv_list.append((idx, val, './splice_seeds/tmp_' + str(idxx)))
+    # do not generate spliced seed for the first round
+    if splice == 1 and round_cnt != 0:
+        splice_seed(fl[0], fl[1], idxx)
+        x = vectorize_file('./splice_seeds/tmp_' + str(idxx))
+        loss_value, grads_value = iterate([x])
+        idx = np.flip(np.argsort(np.absolute(grads_value), axis=1)[:, -MAX_FILE_SIZE:].reshape((MAX_FILE_SIZE,)), 0)
+        # val = np.sign(grads_value[0][idx])
+        val = np.random.choice([1, -1], MAX_FILE_SIZE, replace=True)
+        adv_list.append((idx, val, './splice_seeds/tmp_' + str(idxx)))
 
     return adv_list
 
@@ -304,7 +296,7 @@ def gen_mutate2(model, edge_num, sign):
     tmp_list = []
     # select seeds
     print("#######debug" + str(round_cnt))
-    if(round_cnt == 0):
+    if round_cnt == 0:
         new_seed_list = seed_list
     else:
         new_seed_list = new_seeds
@@ -319,11 +311,7 @@ def gen_mutate2(model, edge_num, sign):
         rand_seed2 = [seed_list[i] for i in np.random.choice(len(seed_list), edge_num, replace=False)]
 
     # function pointer for gradient computation
-    fn = gen_adv2
-    if (sign):
-        fn = gen_adv2
-    else:
-        fn = gen_adv3
+    fn = gen_adv2 if sign else gen_adv3
 
     # select output neurons to compute gradient
     interested_indice = np.random.choice(MAX_BITMAP_SIZE, edge_num)
@@ -332,7 +320,7 @@ def gen_mutate2(model, edge_num, sign):
     with open('gradient_info_p', 'w') as f:
         for idxx in range(len(interested_indice[:])):
             # kears's would stall after multiple gradient compuation. Release memory and reload model to fix it.
-            if (idxx % 100 == 0):
+            if idxx % 100 == 0:
                 del model
                 K.clear_session()
                 model = build_model()
@@ -389,10 +377,7 @@ def gen_grad(data):
     model = build_model()
     train(model)
     # model.load_weights('hard_label.h5')
-    if(data[:5] == "train"):
-        gen_mutate2(model, 500, True)
-    else:
-        gen_mutate2(model, 500, False)
+    gen_mutate2(model, 500, data[:5] == "train")
     round_cnt = round_cnt + 1
     print(time.time() - t0)
 
@@ -402,7 +387,7 @@ def setup_server():
     sock.bind((HOST, PORT))
     sock.listen(1)
     conn, addr = sock.accept()
-    print('connected by neuzz execution moduel' + str(addr))
+    print('connected by neuzz execution moduel ' + str(addr))
     gen_grad('train')
     conn.sendall(b"start")
     while True:
@@ -415,4 +400,5 @@ def setup_server():
     conn.close()
 
 
-setup_server()
+if __name__ == '__main__':
+    setup_server()
