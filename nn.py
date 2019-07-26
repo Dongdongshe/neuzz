@@ -377,7 +377,7 @@ def gen_grad(data):
     model = build_model()
     train(model)
     # model.load_weights('hard_label.h5')
-    gen_mutate2(model, 500, data[:5] == "train")
+    gen_mutate2(model, 500, data[:5] == b"train")
     round_cnt = round_cnt + 1
     print(time.time() - t0)
 
@@ -388,7 +388,7 @@ def setup_server():
     sock.listen(1)
     conn, addr = sock.accept()
     print('connected by neuzz execution moduel ' + str(addr))
-    gen_grad('train')
+    gen_grad(b"train")
     conn.sendall(b"start")
     while True:
         data = conn.recv(1024)
