@@ -94,7 +94,8 @@ typedef uint64_t u64;
 
 unsigned long total_execs;              /* Total number of execs */
 static int shm_id;                      /* ID of the SHM region */
-static int mem_limit  = 1024;           /* Maximum memory limit for target program */
+// mem_limit = 0 is equiv. to -m none
+static int mem_limit  = 0;           /* Maximum memory limit for target program */
 static int cpu_aff = -1;                /* Selected CPU core */
 int round_cnt = 0;                      /* Round number counter */
 int edge_gain=0;                        /* If there is new edge gain */
