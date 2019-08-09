@@ -94,8 +94,7 @@ typedef uint64_t u64;
 
 unsigned long total_execs;              /* Total number of execs */
 static int shm_id;                      /* ID of the SHM region */
-// mem_limit = 0 is equiv. to -m none
-static int mem_limit  = 0;           /* Maximum memory limit for target program */
+static int mem_limit  = 1024;           /* Maximum memory limit for target program */
 static int cpu_aff = -1;                /* Selected CPU core */
 int round_cnt = 0;                      /* Round number counter */
 int edge_gain=0;                        /* If there is new edge gain */
@@ -343,8 +342,7 @@ void init_forkserver(char** argv) {
   int st_pipe[2], ctl_pipe[2];
   int status;
   int rlen;
-  char* cwd = getcwd(NULL, 0);
-  out_file = alloc_printf("%s/%s/.cur_input",cwd, out_dir);
+  out_file = alloc_printf("%s/.cur_input", out_dir);
   printf("Spinning up the fork server...\n");
 
   if (pipe(st_pipe) || pipe(ctl_pipe)) perror("pipe() failed");
@@ -1996,9 +1994,9 @@ void start_fuzz_test(int f_len){
 }
 
 
-void main(int argc, char*argv[]){
+int main(int argc, char*argv[]){
     int opt;
-    while ((opt = getopt(argc, argv, "+i:o:l:")) > 0)
+    while ((opt = getopt(argc, argv, "+i:o:l:m:")) > 0)
 
     switch (opt) {
 
@@ -2034,9 +2032,42 @@ void main(int argc, char*argv[]){
          printf("num_index %d %d small %d medium %d large %d\n", num_index[12], num_index[13], havoc_blk_small, havoc_blk_medium, havoc_blk_large);
          printf("mutation len: %ld\n", len);
          break;
+
+      case 'm': /* memory limit */
+          if (!strcmp(optarg, "none")) {
+            mem_limit = 0;
+            break;
+          }
+
+          char suffix = 'M';
+          if (sscanf(optarg, "%llu%c", &mem_limit, &suffix) < 1 || optarg[0] == '-') {
+            fprintf(stderr, "Bad syntax used for -m\n");
+            return -1;
+          }
+
+          switch (suffix) {
+            case 'T': mem_limit *= 1024 * 1024; break;
+            case 'G': mem_limit *= 1024; break;
+            case 'k': mem_limit /= 1024; break;
+            case 'M': break;
+            default:
+              fprintf(stderr, "Unsupported suffix or bad syntax for -m\n");
+              return -1;
+          }
+
+          if (mem_limit < 5) {
+            fprintf(stderr, "Dangerously low value of -m\n");
+            return -1;
+          }
+          if (sizeof(rlim_t) == 4 && mem_limit > 2000) {
+            fprintf(stderr, "Value of -m out of range on 32-bit systems\n");
+            return -1;
+          }
+          break;
       
     default:
         printf("no manual...");
+        return 0;
     }
     
     setup_signal_handlers();
@@ -2055,6 +2086,6 @@ void main(int argc, char*argv[]){
    
     start_fuzz(len);   
     printf("total execs %ld edge coverage %d.\n", total_execs, count_non_255_bytes(virgin_bits));
-    return;
+    return 0;
 }
 

@@ -46,20 +46,21 @@ def process_data():
     global seed_list
     global new_seeds
 
+    output_folder = os.path.abspath(args.output_folder)
     # shuffle training samples
-    seed_list = glob.glob('./{}/*'.format(args.output_folder))
+    seed_list = glob.glob('{}/*'.format(output_folder))
     seed_list.sort()
     SPLIT_RATIO = len(seed_list)
     rand_index = np.arange(SPLIT_RATIO)
     np.random.shuffle(seed_list)
-    new_seeds = glob.glob('./{}/id_*'.format(args.output_folder))
+    new_seeds = glob.glob('{}/id_*'.format(output_folder))
 
     call = subprocess.check_output
 
     # get MAX_FILE_SIZE
     cwd = os.getcwd()
-    max_file_name = call(['ls', '-S', args.output_folder]).decode('utf8').split('\n')[0].rstrip('\n')
-    MAX_FILE_SIZE = os.path.getsize(args.output_folder + '/' + max_file_name)
+    max_file_name = call(['ls', '-S', output_folder]).decode('utf8').split('\n')[0].rstrip('\n')
+    MAX_FILE_SIZE = os.path.getsize(output_folder + '/' + max_file_name)
 
     # create directories to save label, spliced seeds, variant length seeds, crashes and mutated seeds.
     if os.path.isdir("./bitmaps/") == False:
@@ -432,7 +433,7 @@ if __name__ == "__main__":
                         '--output-folder',
                         help="""The -o folder provided to afl, this is where the
                         Neuzz process reads seeds from.""",
-                        required=True)
+                        default='seeds')
     parser.add_argument('target', nargs=argparse.REMAINDER)
     args = parser.parse_args()
 

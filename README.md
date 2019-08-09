@@ -26,6 +26,23 @@ If you want to try NEUZZ on a new program,
 1. Compile the new program from source code using afl-gcc.
 2. Collect the training data by running AFL on the binary for a while(about an hour), then copy the queue folder to neuzz_in.
 3. Follow the above two steps to start NN module and NEUZZ module.
+
+### Running with ASAN
+
+If your binary is compiled with ASAN instrumentation, do the following to run
+it properly.
+
+Pass `--enable-asan` to `nn.py`:
+```bash
+    python nn.py --enable-asan ./readelf -a
+```
+
+And pass `-m none` to `./nuezz` as you would to afl:
+```bash
+    ./neuzz -m none -i neuzz_in -o seeds -l 7506 ./readelf -a @@
+```
+
+
 ## Sample programs
 Try 10 real-world programs on NEUZZ. Check setup details at programs/[program names]/README.
 
