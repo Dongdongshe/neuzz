@@ -1691,9 +1691,18 @@ void dry_run(char* dir, int stage){
     struct dirent *entry;
     struct stat statbuf;
     if((dp = opendir(dir)) == NULL) {
+        perror("opendir");
         fprintf(stderr,"cannot open directory: %s\n", dir);
         return;
     }
+    // Store the original cwd so we can chdir back to it.
+    char original_cwd[PATH_MAX];
+    if (getcwd(original_cwd, sizeof(original_cwd)) == NULL) {
+      perror("getcwd");
+      return;
+    }
+
+
     if(chdir(dir)== -1)
         perror("chdir failed\n");
     int cnt = 0;
@@ -1756,7 +1765,7 @@ void dry_run(char* dir, int stage){
             }
         }
     }
-    if(chdir("..") == -1)
+    if(chdir(original_cwd) == -1)
         perror("chdir failed\n");
     closedir(dp);
     
@@ -1783,6 +1792,7 @@ void copy_file(char* src, char* dst){
     fptr1 = fopen(src, "r");
     if (fptr1 == NULL)
     {
+        perror("fopen");
         printf("Cannot open file %s \n", src);
         exit(0);
     }
@@ -1790,6 +1800,7 @@ void copy_file(char* src, char* dst){
     fptr2 = fopen(dst, "w");
     if (fptr2 == NULL)
     {
+        perror("fopen");
         printf("Cannot open file %s \n", dst);
         exit(0);
     }
