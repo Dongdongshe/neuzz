@@ -342,8 +342,7 @@ void init_forkserver(char** argv) {
   int st_pipe[2], ctl_pipe[2];
   int status;
   int rlen;
-  char* cwd = getcwd(NULL, 0);
-  out_file = alloc_printf("%s/%s/.cur_input",cwd, out_dir);
+  out_file = alloc_printf("%s/.cur_input", out_dir);
   printf("Spinning up the fork server...\n");
 
   if (pipe(st_pipe) || pipe(ctl_pipe)) perror("pipe() failed");
@@ -1690,9 +1689,18 @@ void dry_run(char* dir, int stage){
     struct dirent *entry;
     struct stat statbuf;
     if((dp = opendir(dir)) == NULL) {
+        perror("opendir");
         fprintf(stderr,"cannot open directory: %s\n", dir);
         return;
     }
+    // Store the original cwd so we can chdir back to it.
+    char original_cwd[PATH_MAX];
+    if (getcwd(original_cwd, sizeof(original_cwd)) == NULL) {
+      perror("getcwd");
+      return;
+    }
+
+
     if(chdir(dir)== -1)
         perror("chdir failed\n");
     int cnt = 0;
@@ -1755,7 +1763,7 @@ void dry_run(char* dir, int stage){
             }
         }
     }
-    if(chdir("..") == -1)
+    if(chdir(original_cwd) == -1)
         perror("chdir failed\n");
     closedir(dp);
     
@@ -1782,6 +1790,7 @@ void copy_file(char* src, char* dst){
     fptr1 = fopen(src, "r");
     if (fptr1 == NULL)
     {
+        perror("fopen");
         printf("Cannot open file %s \n", src);
         exit(0);
     }
@@ -1789,6 +1798,7 @@ void copy_file(char* src, char* dst){
     fptr2 = fopen(dst, "w");
     if (fptr2 == NULL)
     {
+        perror("fopen");
         printf("Cannot open file %s \n", dst);
         exit(0);
     }
@@ -1984,9 +1994,9 @@ void start_fuzz_test(int f_len){
 }
 
 
-void main(int argc, char*argv[]){
+int main(int argc, char*argv[]){
     int opt;
-    while ((opt = getopt(argc, argv, "+i:o:l:")) > 0)
+    while ((opt = getopt(argc, argv, "+i:o:l:m:")) > 0)
 
     switch (opt) {
 
@@ -2022,9 +2032,42 @@ void main(int argc, char*argv[]){
          printf("num_index %d %d small %d medium %d large %d\n", num_index[12], num_index[13], havoc_blk_small, havoc_blk_medium, havoc_blk_large);
          printf("mutation len: %ld\n", len);
          break;
+
+      case 'm': /* memory limit */
+          if (!strcmp(optarg, "none")) {
+            mem_limit = 0;
+            break;
+          }
+
+          char suffix = 'M';
+          if (sscanf(optarg, "%llu%c", &mem_limit, &suffix) < 1 || optarg[0] == '-') {
+            fprintf(stderr, "Bad syntax used for -m\n");
+            return -1;
+          }
+
+          switch (suffix) {
+            case 'T': mem_limit *= 1024 * 1024; break;
+            case 'G': mem_limit *= 1024; break;
+            case 'k': mem_limit /= 1024; break;
+            case 'M': break;
+            default:
+              fprintf(stderr, "Unsupported suffix or bad syntax for -m\n");
+              return -1;
+          }
+
+          if (mem_limit < 5) {
+            fprintf(stderr, "Dangerously low value of -m\n");
+            return -1;
+          }
+          if (sizeof(rlim_t) == 4 && mem_limit > 2000) {
+            fprintf(stderr, "Value of -m out of range on 32-bit systems\n");
+            return -1;
+          }
+          break;
       
     default:
         printf("no manual...");
+        return 0;
     }
     
     setup_signal_handlers();
@@ -2043,6 +2086,6 @@ void main(int argc, char*argv[]){
    
     start_fuzz(len);   
     printf("total execs %ld edge coverage %d.\n", total_execs, count_non_255_bytes(virgin_bits));
-    return;
+    return 0;
 }
 

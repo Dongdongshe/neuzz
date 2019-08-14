@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 import glob
@@ -33,6 +34,7 @@ new_seeds = glob.glob('./seeds/id_*')
 SPLIT_RATIO = len(seed_list)
 # get binary argv
 argvv = sys.argv[1:]
+args = None
 
 # process training data from afl raw data
 
@@ -44,20 +46,21 @@ def process_data():
     global seed_list
     global new_seeds
 
+    output_folder = os.path.abspath(args.output_folder)
     # shuffle training samples
-    seed_list = glob.glob('./seeds/*')
+    seed_list = glob.glob('{}/*'.format(output_folder))
     seed_list.sort()
     SPLIT_RATIO = len(seed_list)
     rand_index = np.arange(SPLIT_RATIO)
     np.random.shuffle(seed_list)
-    new_seeds = glob.glob('./seeds/id_*')
+    new_seeds = glob.glob('{}/id_*'.format(output_folder))
 
     call = subprocess.check_output
 
     # get MAX_FILE_SIZE
     cwd = os.getcwd()
-    max_file_name = call(['ls', '-S', cwd + '/seeds/']).decode('utf8').split('\n')[0].rstrip('\n')
-    MAX_FILE_SIZE = os.path.getsize(cwd + '/seeds/' + max_file_name)
+    max_file_name = call(['ls', '-S', output_folder]).decode('utf8').split('\n')[0].rstrip('\n')
+    MAX_FILE_SIZE = os.path.getsize(output_folder + '/' + max_file_name)
 
     # create directories to save label, spliced seeds, variant length seeds, crashes and mutated seeds.
     if os.path.isdir("./bitmaps/") == False:
@@ -76,13 +79,14 @@ def process_data():
     for f in seed_list:
         tmp_list = []
         try:
+            mem_limit = '512' if not args.enable_asan else 'none'
             # append "-o tmp_file" to strip's arguments to avoid tampering tested binary.
             if argvv[0] == './strip':
-                out = call(['./afl-showmap', '-q', '-e', '-o', '/dev/stdout', '-m', '512', '-t', '500'] + argvv + [f] + ['-o', 'tmp_file'])
+                out = call(['./afl-showmap', '-q', '-e', '-o', '/dev/stdout', '-m', mem_limit, '-t', '500'] + args.target + [f] + ['-o', 'tmp_file'])
             else:
-                out = call(['./afl-showmap', '-q', '-e', '-o', '/dev/stdout', '-m', '512', '-t', '500'] + argvv + [f])
-        except subprocess.CalledProcessError:
-            print("find a crash")
+                out = call(['./afl-showmap', '-q', '-e', '-o', '/dev/stdout', '-m', mem_limit, '-t', '500'] + args.target + [f])
+        except subprocess.CalledProcessError as e:
+            print("find a crash", e)
         for line in out.splitlines():
             edge = line.split(b':')[0]
             tmp_cnt.append(edge)
@@ -399,6 +403,8 @@ def gen_grad(data):
 
 def setup_server():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Allow re-use so we don't have to wait if the process crashes.
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((HOST, PORT))
     sock.listen(1)
     conn, addr = sock.accept()
@@ -415,4 +421,20 @@ def setup_server():
     conn.close()
 
 
-setup_server()
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="""Runs the background machine
+                        learning process for Neuzz.""")
+    parser.add_argument('-e',
+                        '--enable-asan',
+                        help='Enable ASAN (runs afl-showmap with -m none)',
+                        default=False,
+                        action='store_true')
+    parser.add_argument('-o',
+                        '--output-folder',
+                        help="""The -o folder provided to afl, this is where the
+                        Neuzz process reads seeds from.""",
+                        default='seeds')
+    parser.add_argument('target', nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+
+    setup_server()
